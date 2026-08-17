@@ -7,10 +7,11 @@
 #else // VECLIB_ASSERT_NOEXCEPT
 #include <stdexcept>
 #endif // VECLIB_ASSERT_NOEXCEPT
-#include <utility> // std::move(), std::forward()
 #include <initializer_list>
+#include <utility> // std::move(), std::forward()
+#include <concepts> // std::integral, std::equality_comparable
 
-/// @brief A collection of array data structures (arrays, vectors, lists...)
+/// @brief A collection of array-like data structures (arrays, vectors, slices, lists...)
 namespace veclib {
 
 /// @brief Alias for the signed equivalent of `std::size_t`
@@ -55,13 +56,21 @@ public:
 
     /// @brief Prefix-increment this iterator
     /// @return A reference to this iterator object once modified
-    inline constexpr ReverseMemIterator<Type>& operator++() noexcept {
+    /// @throws `std::runtime_error` if the underlying data
+    ///         pointer is `nullptr
+    inline constexpr ReverseMemIterator<Type>& operator++() {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr)
+            throw std::runtime_error("ReverseMemIterator<Type>::operator++(): Data pointer is nullptr");
+        #endif // VECLIB_ASSERT_NOEXCEPT
         --data;
         return *this; // Does this throw if data is nullptr?
     }
     /// @brief Postfix-increment this iterator 
     /// @return A copy of the iterator before being incremented
-    inline constexpr ReverseMemIterator<Type> operator++(int) noexcept {
+    inline constexpr ReverseMemIterator<Type> operator++(int) {
         ReverseMemIterator<Type> self = *this;
         --data;
         return self;
@@ -69,13 +78,21 @@ public:
 
     /// @brief Prefix-decrement this iterator
     /// @return A reference to this iterator object once modified
-    inline constexpr ReverseMemIterator<Type>& operator--() noexcept {
+    /// @throws `std::runtime_error` if the underlying data
+    ///         pointer is `nullptr
+    inline constexpr ReverseMemIterator<Type>& operator--() {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr)
+            throw std::runtime_error("ReverseMemIterator<Type>::operator++(): Data pointer is nullptr");
+        #endif // VECLIB_ASSERT_NOEXCEPT
         ++data;
         return *this; // Does this throw if data is nullptr?
     }
     /// @brief Postfix-increment this iterator 
     /// @return A copy of the iterator before being incremented
-    inline constexpr ReverseMemIterator<Type> operator--(int) noexcept {
+    inline constexpr ReverseMemIterator<Type> operator--(int) {
         ReverseMemIterator<Type> self = *this;
         ++data;
         return self;
@@ -85,7 +102,15 @@ public:
     /// @param x The number of items of the type being pointed
     ///          to to increment this iterator by
     /// @return A reference to the incremented iterator
-    inline constexpr ReverseMemIterator<Type>& operator+=(std::size_t x) noexcept {
+    /// @throws `std::runtime_error` if the underlying data
+    ///         pointer is `nullptr
+    inline constexpr ReverseMemIterator<Type>& operator+=(std::size_t x) {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr)
+            throw std::runtime_error("ReverseMemIterator<Type>::operator++(): Data pointer is nullptr");
+        #endif // VECLIB_ASSERT_NOEXCEPT
         data -= x;
         return *this;
     }
@@ -94,7 +119,15 @@ public:
     /// @param x The number of items of the type being pointed
     ///          to to decrement this iterator by
     /// @return A reference to the decremented iterator
-    inline constexpr ReverseMemIterator<Type>& operator-=(std::size_t x) noexcept {
+    /// @throws `std::runtime_error` if the underlying data
+    ///         pointer is `nullptr
+    inline constexpr ReverseMemIterator<Type>& operator-=(std::size_t x) {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr)
+            throw std::runtime_error("ReverseMemIterator<Type>::operator++(): Data pointer is nullptr");
+        #endif // VECLIB_ASSERT_NOEXCEPT
         data += x;
         return *this;
     }
@@ -104,7 +137,9 @@ public:
     /// @param x The number of items to add
     /// @return A copy of this iterator pointing to the new location
     ///         provided by `x`
-    inline constexpr ReverseMemIterator<Type> operator+(std::size_t x) noexcept {
+    /// @throws `std::runtime_error` if the underlying data
+    ///         pointer is `nullptr
+    inline constexpr ReverseMemIterator<Type> operator+(std::size_t x) const noexcept {
         ReverseMemIterator<Type> self = *this;
         self.data -= x;
         return self;
@@ -115,7 +150,7 @@ public:
     /// @param x The number of items to subtract
     /// @return A copy of this iterator pointing to the new location
     ///         provided by `x`
-    inline constexpr ReverseMemIterator<Type> operator-(std::size_t x) noexcept {
+    inline constexpr ReverseMemIterator<Type> operator-(std::size_t x) const noexcept {
         ReverseMemIterator<Type> self = *this;
         self.data += x;
         return self;
@@ -165,17 +200,58 @@ private:
     std::size_t count = 0;
 
 public:
+    /// @brief Default constructor
     MemSlice() noexcept = default;
+    /// @brief Default destructor
     ~MemSlice() noexcept = default;
 
-    MemSlice(Type* p, std::size_t s) : data(p), count(s) {}
+    /// @brief Construct a `MemSlice` with a pointer to a region
+    ///        of memory and the number of elements the slice will reference
+    /// @param p The pointer to memory to reference
+    /// @param s The number of elements to reference
+    MemSlice(Type* p, std::size_t s) noexcept
+        : data(p), count(s) {}
 
+    /// @brief Construct a `MemSlice` object by copying another one
+    ///        that references a type convertible to the type of this slice
+    /// @tparam Other The type of the slice to copy
+    /// @param other The slice to copy
+    template <typename Other>
+    MemSlice(const MemSlice<Other>& other) noexcept requires std::convertible_to<Other*, Type*>
+        : data(other.data), count(other.count) {}
+    /// @brief Construct a `MemSlice` object by copying another one
+    ///        that references a type convertible to the type of this slice
+    /// @tparam Other The type of the slice to copy
+    /// @param other The slice to copy
+    /// @return A reference to the constructed object
+    template <typename Other>
+    inline constexpr MemSlice<Type>& operator=(const MemSlice<Other>& other) noexcept
+            requires std::convertible_to<Other*, Type*> {
+        data = other.data;
+        count = other.count;
+        return *this;
+    }
+
+    /// @brief Receive a read-only pointer to the data being referenced
+    /// @return A pointer to the memory being referenced
     inline constexpr const Type* get() const noexcept { return data; }
+    /// @brief Evaluates to the number of elements currently being
+    ///        referenced by the slice
+    /// @return The number of referenced elements
     inline constexpr std::size_t size() const noexcept { return count; }
 
+    /// @brief Index into the referenced range with no bounds checking
+    /// @param i The index into the range
+    /// @return A reference to the indexed element
     inline constexpr Type& operator[](std::size_t i) noexcept { return data[i]; }
+    /// @brief Index into the referenced range with no bounds checking
+    /// @param i The index into the range
+    /// @return A const reference to the indexed element
     inline constexpr const Type& operator[](std::size_t i) const noexcept { return data[i]; }
 
+    /// @brief Index into the referenced range with bounds checking
+    /// @param i The index into the range
+    /// @return A reference to the indexed element
     inline constexpr Type& at(std::size_t i) {
         #ifdef VECLIB_ASSERT_NOEXCEPT
         assert(i < count);
@@ -184,6 +260,9 @@ public:
         #endif // VECLIB_ASSERT_NOEXCEPT
         return data[i];
     }
+    /// @brief Index into the referenced range with bounds checking
+    /// @param i The index into the range
+    /// @return A const reference to the indexed element
     inline constexpr const Type& at(std::size_t i) const {
         #ifdef VECLIB_ASSERT_NOEXCEPT
         assert(i < count);
@@ -193,24 +272,26 @@ public:
         return data[i];
     }
 
-    // slice+=     change size            grow()              } -----+
-    // slice+      new changed size       grow_copy()        } ----+ |---- resize() => universal and signed
-    // slice-=     change size            shrink()            } --|--+
-    // slice-      new changed size       shrink_copy()      } ----+------- resize_copy() => universal and signed
+    // slice+=   change size            grow()              } -----+
+    // slice+    new changed size       grow_copy()        } ----+ |---- resize() => universal and signed
+    // slice-=   change size            shrink()            } ---|-+
+    // slice-    new changed size       shrink_copy()      } ----+------- resize_copy() => universal and signed
 
-    // slice<<=    change ptr             slide_backw()        } -----+
-    // slice<<     new changed ptr        slide_backw_copy()  } ----+ |---- slide() => universal and signed
-    // slice>>=    change ptr             slide_forw()         } --|--+
-    // slice>>     new changed ptr        slide_forw_copy()   } ----+------- slide_copy() => universal and signed
+    // slice<<=  change ptr             slide_backw()        } -----+
+    // slice<<   new changed ptr        slide_backw_copy()  } ----+ |---- slide() => universal and signed
+    // slice>>=  change ptr             slide_forw()         } ---|-+
+    // slice>>   new changed ptr        slide_forw_copy()   } ----+------- slide_copy() => universal and signed
 
-    // slice/=     move head              trim()
-    // slice/      new moved head         trim_copy()
+    // slice/=   move head forw         trim()              } -----+
+    // slice/    new forw moved head    trim_copy()        } ----+ |--- nudge() => universal and signed
+    // slice|=   move head backw        extend()            } ---|-+
+    // slice|    new backw moved head   extend_copy()      } ----+------ nudge_copy() => universal and signed
 
     // optional:
-    // ++slice     move head by 1         consume_front()
-    // +slice      new moved head by 1    consume_front_copy()
-    // --slice     move tail by -1        consume_back()
-    // -slice      new moved tail by -1   consume_back_copy()
+    // ++slice   move head by 1         consume_front()
+    // +slice    new moved head by 1    consume_front_copy()
+    // --slice   move tail by -1        consume_back()
+    // -slice    new moved tail by -1   consume_back_copy()
 
     /// @brief Move the end of the slice forward while keeping the head still
     /// @param x The amount of new elements to widen the window by
@@ -258,12 +339,13 @@ public:
     ///         value is greater than the slice size
     inline constexpr MemSlice<Type>& resize(diff_t x) {
         #ifdef VECLIB_ASSERT_NOEXCEPT
-        assert(count + x >= 0);
+        assert(x < 0 ? static_cast<std::size_t>(-x) <= count : true);
         #else // VECLIB_ASSERT_NOEXCEPT
-        if (count + x < 0)
+        if (x < 0 && static_cast<std::size_t>(-x) > count)
             throw std::underflow_error("MemSlice<Type>.resize(diff_t): Shrinking by too much");
         #endif // VECLIB_ASSERT_NOEXCEPT
         count += x;
+        return *this;
     }
     /// @brief Resize arbitrarily this slice by moving the end of the slice
     ///        forward or backward
@@ -323,24 +405,79 @@ public:
         return self;
     }
 
-    /// @brief Move the head of the slice while keeping the last element still
+    /// @brief Move the head of the slice forward while keeping the last element still
     /// @param x The number of elements to move the head by
     /// @return A reference to the modified slice
+    /// @throws `std::runtime_error` if the underlying data pointer is `nullptr`,
+    ///         if exceptions are not disabled by defining `VECLIB_ASSERT_NOEXCEPT`,
+    ///         otherwise an assert will fail, `std::overflow_error` if `x` is greater
+    ///         than the size of the slice
     inline constexpr MemSlice<Type>& trim(std::size_t x) {
         #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data);
         assert(x <= count);
         #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr)
+            throw std::runtime_error("MemSlice<Type>.trim(std::size_t): Data pointer is nullptr");
         if (x > count) throw std::overflow_error("MemSlice<Type>.trim(std::size_t): Can't trim past slice size");
         #endif // VECLIB_ASSERT_NOEXCEPT
         data += x;
         count -= x;
+        return *this;
     }
-    /// @brief Move the head of the slice while keeping the last element still
+    /// @brief Move the head of the slice forward while keeping the last element still
     /// @param x The number of elements to move the head by
     /// @return A copy of this slice on which the operation was performed
-    inline constexpr MemSlice<Type> trim_copy(std::size_t x) {
+    inline constexpr MemSlice<Type> trim_copy(std::size_t x) const {
         MemSlice<Type> self = *this;
         self.trim(x);
+        return self;
+    }
+    /// @brief Move the head of the slice backward while keeping the last element still
+    /// @param x The number of elements to move the head by
+    /// @return A reference to the modified slice
+    inline constexpr MemSlice<Type>& extend(std::size_t x) {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr)
+            throw std::runtime_error("MemSlice<Type>.extend(std::size_t): Data pointer is nullptr");
+        #endif // VECLIB_ASSERT_NOEXCEPT
+        data -= x;
+        count += x;
+        return *this;
+    }
+    /// @brief Move the head of the slice backward while keeping the last element still
+    /// @param x The number of elements to move the head by
+    /// @return A copy of the slice on which the operation was performed
+    inline constexpr MemSlice<Type> extend_copy(std::size_t x) const noexcept {
+        MemSlice<Type> self = *this;
+        self.extend(x);
+        return self;
+    }
+    /// @brief Move the head of the slice arbitrarily while keeping the last element still
+    /// @param x The number of elements to move the head by
+    /// @return A reference to the modified slice
+    inline constexpr MemSlice<Type>& nudge(diff_t x) {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data);
+        assert(x >= 0 ? static_cast<std::size_t>(x) <= count : true);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr)
+            throw std::runtime_error("MemSlice<Type>.extend(std::size_t): Data pointer is nullptr");
+        if (x >= 0 && static_cast<std::size_t>(x) > count)
+            throw std::overflow_error("MemSlice<Type>.nudge(std::size_t): Can't nudge past slice size");
+        #endif // VECLIB_ASSERT_NOEXCEPT
+        data += x;
+        count -= x;
+        return *this;
+    }
+    /// @brief Move the head of the slice arbitrarily while keeping the last element still
+    /// @param x The number of elements to move the head by
+    /// @return A copy of the slice on which the operation was performed
+    inline constexpr MemSlice<Type> nudge_copy(diff_t x) const {
+        MemSlice<Type> self = *this;
+        self.nudge(x);
         return self;
     }
 
@@ -359,7 +496,7 @@ public:
     }
     /// @brief Consume the first element of the slice while keeping the last one still
     /// @return A copy of this slice on which the operation was performed
-    inline constexpr MemSlice<Type> consume_front_copy() {
+    inline constexpr MemSlice<Type> consume_front_copy() const {
         MemSlice<Type> self = *this;
         self.consume_front();
         return self;
@@ -378,7 +515,7 @@ public:
     }
     /// @brief Consume the last element of the slice while keeping the first one still
     /// @return A copy of this slice on which the operation was performed
-    inline constexpr MemSlice<Type> consume_back_copy() {
+    inline constexpr MemSlice<Type> consume_back_copy() const {
         MemSlice<Type> self = *this;
         self.consume_back();
         return self;
@@ -405,70 +542,149 @@ public:
     /// @brief Operator overload for calling `trim(x)`
     inline constexpr MemSlice<Type>& operator/=(std::size_t x) { return trim(x); }
     /// @brief Operator overload for calling `trim_copy(x)`
-    inline constexpr MemSlice<Type> operator/(std::size_t x) { return trim_copy(x); }
+    inline constexpr MemSlice<Type> operator/(std::size_t x) const { return trim_copy(x); }
+    /// @brief Operator overload for calling `extend(x)`
+    inline constexpr MemSlice<Type>& operator|=(std::size_t x) noexcept { return extend(x); }
+    /// @brief Operator overload for calling `extend_copy(x)`
+    inline constexpr MemSlice<Type> operator|(std::size_t x) const noexcept { return extend_copy(x); }
 
     /// @brief Operator overload for calling `consume_front()`
     inline constexpr MemSlice<Type>& operator++() { return consume_front(); }
     /// @brief Operator overload for calling `consume_front_copy()`
-    inline constexpr MemSlice<Type> operator+() { return consume_front_copy(); }
+    inline constexpr MemSlice<Type> operator+() const { return consume_front_copy(); }
     /// @brief Operator overload for calling `consume_back()`
     inline constexpr MemSlice<Type>& operator--() { return consume_back(); }
     /// @brief Operator overload for calling `consume_back_copy()`
-    inline constexpr MemSlice<Type> operator-() { return consume_back_copy(); }
+    inline constexpr MemSlice<Type> operator-() const { return consume_back_copy(); }
 
     /// @brief Receive a forward iterator to the first element
     /// @return A pointer to the first element
-    inline constexpr Type* begin() noexcept { return data; }
+    inline constexpr const Type* begin() {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr) throw std::runtime_error("MemSlice<Type>.begin(): Data pointer is nullptr");
+        #endif // VECLIB_ASSERT_NOEXCEPT
+        return data;
+    }
     /// @brief Receive a const forward iterator to the first element
     /// @return A const pointer to the first element
-    inline constexpr const Type* begin() const noexcept { return data; }
+    inline constexpr const Type* begin() const {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr) throw std::runtime_error("MemSlice<Type>.begin(): Data pointer is nullptr");
+        #endif // VECLIB_ASSERT_NOEXCEPT
+        return data;
+    }
 
     /// @brief Receive a forward iterator past the last element
     /// @return A pointer pointing past the last element
-    inline constexpr Type* end() noexcept { return data + count; }
+    inline constexpr const Type* end() {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data);
+        //assert(count != 0);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr) throw std::runtime_error("MemSlice<Type>.end(): Data pointer is nullptr");
+        //if (count == 0) throw std::logic_error("MemSlice<Type>.end(): The size of the slice is 0");
+        #endif // VECLIB_ASSERT_NOEXCEPT
+        // Instead of throwing or asserting, we just short-circuit and make loops never run
+        return count != 0 ? data + count : data;
+    }
     /// @brief Receive a const forward iterator past the last element
     /// @return A const pointer pointing past the last element
-    inline constexpr const Type* end() const noexcept { return data + count; }
+    inline constexpr const Type* end() const {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr) throw std::runtime_error("MemSlice<Type>.end(): Data pointer is nullptr");
+        #endif // VECLIB_ASSERT_NOEXCEPT
+        return count != 0 ? data + count : data;
+    }
 
     /// @brief Receive a reverse iterator to the first element
     /// @return A reverse iterator object pointing to the first element
-    inline constexpr ReverseMemIterator<Type> rbegin() noexcept {
-        return ReverseMemIterator<Type>(data + count - 1);
+    inline constexpr ReverseMemIterator<const Type> rbegin() {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr) throw std::runtime_error("MemSlice<Type>.rbegin(): Data pointer is nullptr");
+        #endif // VECLIB_ASSERT_NOEXCEPT
+        return ReverseMemIterator<Type>(count != 0 ? data + count - 1 : data);
     }
     /// @brief Receive a const reverse iterator to the first element
     /// @return A const reverse iterator object pointing to the first element
-    inline constexpr const ReverseMemIterator<Type> rbegin() const noexcept {
-        return ReverseMemIterator<Type>(data + count - 1);
+    inline constexpr const ReverseMemIterator<const Type> rbegin() const {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr) throw std::runtime_error("MemSlice<Type>.rbegin(): Data pointer is nullptr");
+        #endif // VECLIB_ASSERT_NOEXCEPT
+        return ReverseMemIterator<Type>(count != 0 ? data + count - 1 : data);
     }
 
     /// @brief Receive a reverse iterator past the last element
     /// @return A reverse iterator object pointing past the last element
-    inline constexpr ReverseMemIterator<Type> rend() noexcept {
-        return ReverseMemIterator<Type>(data - 1);
+    inline constexpr ReverseMemIterator<const Type> rend() {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr) throw std::runtime_error("MemSlice<Type>.rend(): Data pointer is nullptr");
+        #endif // VECLIB_ASSERT_NOEXCEPT
+        return ReverseMemIterator<Type>(count != 0 ? data - 1 : data);
     }
     /// @brief Receive a const reverse iterator past the last element
     /// @return A const reverse iterator object pointing past the last element
-    inline constexpr const ReverseMemIterator<Type> rend() const noexcept {
-        return ReverseMemIterator<Type>(data - 1);
+    inline constexpr const ReverseMemIterator<const Type> rend() const {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr) throw std::runtime_error("MemSlice<Type>.rend(): Data pointer is nullptr");
+        #endif // VECLIB_ASSERT_NOEXCEPT
+        return ReverseMemIterator<Type>(count != 0 ? data - 1 : data);
     }
 
     /// @brief Receive a const forward iterator to the first element
     /// @return A const pointer to the first element
-    inline constexpr const Type* cbegin() const noexcept { return data; }
+    inline constexpr const Type* cbegin() const {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr) throw std::runtime_error("MemSlice<Type>.cbegin(): Data pointer is nullptr");
+        #endif // VECLIB_ASSERT_NOEXCEPT
+        return data;
+    }
 
     /// @brief Receive a const forward iterator past the last element
     /// @return A const pointer pointing past the last element
-    inline constexpr const Type* cend() const noexcept { return data + count; }
+    inline constexpr const Type* cend() const {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr) throw std::runtime_error("MemSlice<Type>.cend(): Data pointer is nullptr");
+        #endif // VECLIB_ASSERT_NOEXCEPT
+        return data + count;
+    }
 
     /// @brief Receive a const reverse iterator to the first element
     /// @return A const reverse iterator object pointing to the first element
-    inline constexpr const ReverseMemIterator<Type> crbegin() const noexcept {
+    inline constexpr const ReverseMemIterator<const Type> crbegin() const {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr) throw std::runtime_error("MemSlice<Type>.crbegin(): Data pointer is nullptr");
+        #endif // VECLIB_ASSERT_NOEXCEPT
         return ReverseMemIterator<Type>(data + count - 1);
     }
 
     /// @brief Receive a const reverse iterator past the last element
     /// @return A const reverse iterator object pointing past the last element
-    inline constexpr const ReverseMemIterator<Type> crend() const noexcept {
+    inline constexpr const ReverseMemIterator<const Type> crend() const {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr) throw std::runtime_error("MemSlice<Type>.crend(): Data pointer is nullptr");
+        #endif // VECLIB_ASSERT_NOEXCEPT
         return ReverseMemIterator<Type>(data - 1);
     }
 };
@@ -570,12 +786,12 @@ public:
     /// @brief Move assigment
     /// @param other The object to move
     /// @return A reference to the constructed object
-    Array<Type, Size>& operator=(Array<Type, Size>& other) noexcept {
+    Array<Type, Size>& operator=(Array<Type, Size>&& other) noexcept {
         for (std::size_t i = 0; i < Size; ++i) {
             data[i] = std::move(other.data[i]);
             //other.data[i].~Type();
         }
-        //other.data = nullptr;
+        other.data = nullptr;
         return *this;
     }
 
@@ -591,10 +807,34 @@ public:
     /// @return A `MemSlice` object referencing the whole array or part of it
     inline constexpr MemSlice<Type> slice(std::size_t start = 0, std::size_t end = Size) {
         #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data);
         assert(end >= start);
         assert(start < Size);
         assert(end <= Size);
         #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr) throw std::runtime_error(
+            "Array<Type, Size>.slice(std::size_t, std::size_t): Data pointer is nullptr");
+        if (end < start) throw std::out_of_range(
+            "Array<Type, Size>.slice(std::size_t, std::size_t): End index is smaller than start index");
+        if (start >= Size) throw std::out_of_range(
+            "Array<Type, Size>.slice(std::size_t, std::size_t): Start index is out of bounds");
+        if (end > Size) throw std::out_of_range(
+            "Array<Type, Size>.slice(std::size_t, std::size_t): End index is out of bounds");
+        #endif // VECLIB_ASSERT_NOEXCEPT
+        return MemSlice<Type>(data + start, end - start);
+    }
+    /// @brief Construct a `MemSlice` object out of this array, optionally
+    ///        specifying start and end indeces (end indeces are exclusive)
+    /// @return A `MemSlice` object referencing the whole array or part of it
+    inline constexpr MemSlice<Type> slice(std::size_t start = 0, std::size_t end = Size)const  {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data);
+        assert(end >= start);
+        assert(start < Size);
+        assert(end <= Size);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr) throw std::runtime_error(
+            "Array<Type, Size>.slice(std::size_t, std::size_t): Data pointer is nullptr");
         if (end < start) throw std::out_of_range(
             "Array<Type, Size>.slice(std::size_t, std::size_t): End index is smaller than start index");
         if (start >= Size) throw std::out_of_range(
@@ -669,69 +909,129 @@ public:
 
     /// @brief Receive a forward iterator to the first element of the array
     /// @return A pointer to the first element
-    inline constexpr Type* begin() noexcept {
+    inline constexpr Type* begin() {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr) throw std::runtime_error("Array<Type, Size>.begin(): Data pointer is nullptr");
+        #endif // VECLIB_ASSERT_NOEXCEPT
         return data;
     }
     /// @brief Receive a const forward iterator to the first element of the array
     /// @return A const pointer to the first element
-    inline constexpr const Type* begin() const noexcept {
+    inline constexpr const Type* begin() const {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr) throw std::runtime_error("Array<Type, Size>.begin(): Data pointer is nullptr");
+        #endif // VECLIB_ASSERT_NOEXCEPT
         return data;
     }
 
     /// @brief Receive a forward iterator past the last element of the array
     /// @return A pointer pointing past the last element
-    inline constexpr Type* end() noexcept {
+    inline constexpr Type* end() {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr) throw std::runtime_error("Array<Type, Size>.end(): Data pointer is nullptr");
+        #endif // VECLIB_ASSERT_NOEXCEPT
         return &data[Size];
     }
     /// @brief Receive a const forward iterator past the last element of the array
     /// @return A const pointer pointing past the last element
-    inline constexpr const Type* end() const noexcept {
+    inline constexpr const Type* end() const {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr) throw std::runtime_error("Array<Type, Size>.end(): Data pointer is nullptr");
+        #endif // VECLIB_ASSERT_NOEXCEPT
         return &data[Size];
     }
 
     /// @brief Receive a reverse iterator to the first element of the array
     /// @return A reverse iterator object pointing to the first element
-    inline constexpr ReverseMemIterator<Type> rbegin() noexcept {
+    inline constexpr ReverseMemIterator<Type> rbegin() requires (Size != 0) {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr) throw std::runtime_error("Array<Type, Size>.rbegin(): Data pointer is nullptr");
+        #endif // VECLIB_ASSERT_NOEXCEPT
         return ReverseMemIterator<Type>(&data[Size - 1]);
     }
     /// @brief Receive a const reverse iterator to the first element of the array
     /// @return A const reverse iterator object pointing to the first element
-    inline constexpr const ReverseMemIterator<Type> rbegin() const noexcept {
+    inline constexpr const ReverseMemIterator<Type> rbegin() const requires (Size != 0) {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr) throw std::runtime_error("Array<Type, Size>.rbegin(): Data pointer is nullptr");
+        #endif // VECLIB_ASSERT_NOEXCEPT
         return ReverseMemIterator<Type>(&data[Size - 1]);
     }
 
     /// @brief Receive a reverse iterator past the last element of the array
     /// @return A reverse iterator object pointing past the last element
-    inline constexpr ReverseMemIterator<Type> rend() noexcept {
+    inline constexpr ReverseMemIterator<Type> rend() requires (Size != 0) {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr) throw std::runtime_error("Array<Type, Size>.rend(): Data pointer is nullptr");
+        #endif // VECLIB_ASSERT_NOEXCEPT
         return ReverseMemIterator<Type>(data - 1);
     }
     /// @brief Receive a const reverse iterator past the last element of the array
     /// @return A const reverse iterator object pointing past the last element
-    inline constexpr const ReverseMemIterator<Type> rend() const noexcept {
+    inline constexpr const ReverseMemIterator<Type> rend() const requires (Size != 0) {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr) throw std::runtime_error("Array<Type, Size>.rend(): Data pointer is nullptr");
+        #endif // VECLIB_ASSERT_NOEXCEPT
         return ReverseMemIterator<Type>(data - 1);
     }
 
     /// @brief Receive a const forward iterator to the first element of the array
     /// @return A const pointer to the first element
     inline constexpr const Type* cbegin() const {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr) throw std::runtime_error("Array<Type, Size>.cbegin(): Data pointer is nullptr");
+        #endif // VECLIB_ASSERT_NOEXCEPT
         return data;
     }
 
     /// @brief Receive a const forward iterator past the last element of the array
     /// @return A const pointer pointing past the last element
     inline constexpr const Type* cend() const {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr) throw std::runtime_error("Array<Type, Size>.cend(): Data pointer is nullptr");
+        #endif // VECLIB_ASSERT_NOEXCEPT
         return &data[Size];
     }
 
     /// @brief Receive a const reverse iterator to the first element of the array
     /// @return A const reverse iterator object pointing to the first element
-    inline constexpr const ReverseMemIterator<Type> crbegin() const {
+    inline constexpr const ReverseMemIterator<Type> crbegin() const requires (Size != 0) {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr) throw std::runtime_error("Array<Type, Size>.crbegin(): Data pointer is nullptr");
+        #endif // VECLIB_ASSERT_NOEXCEPT
         return ReverseMemIterator<Type>(&data[Size - 1]);
     }
 
     /// @brief Receive a const reverse iterator past the last element of the array
     /// @return A const reverse iterator object pointing past the last element
-    inline constexpr const ReverseMemIterator<Type> crend() const {
+    inline constexpr const ReverseMemIterator<Type> crend() const requires (Size != 0) {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr) throw std::runtime_error("Array<Type, Size>.crend(): Data pointer is nullptr");
+        #endif // VECLIB_ASSERT_NOEXCEPT
         return ReverseMemIterator<Type>(data - 1);
     }
 
@@ -792,35 +1092,35 @@ public:
     }
 
     inline constexpr Array<Type, Size> operator+(const Array<Type, Size>& other)
-            noexcept requires std::integral<Type> {
+            const noexcept requires std::integral<Type> {
         Array<Type, Size> output = *this;
         for (std::size_t i = 0; i < Size; ++i)
             output[i] += other.data[i];
         return output;
     }
     inline constexpr Array<Type, Size> operator-(const Array<Type, Size>& other)
-            noexcept requires std::integral<Type> {
+            const noexcept requires std::integral<Type> {
         Array<Type, Size> output = *this;
         for (std::size_t i = 0; i < Size; ++i)
             output[i] -= other.data[i];
         return output;
     }
     inline constexpr Array<Type, Size> operator*(const Array<Type, Size>& other)
-            noexcept requires std::integral<Type> {
+            const noexcept requires std::integral<Type> {
         Array<Type, Size> output = *this;
         for (std::size_t i = 0; i < Size; ++i)
             output[i] *= other.data[i];
         return output;
     }
     inline constexpr Array<Type, Size> operator/(const Array<Type, Size>& other)
-            noexcept requires std::integral<Type> {
+            const noexcept requires std::integral<Type> {
         Array<Type, Size> output = *this;
         for (std::size_t i = 0; i < Size; ++i)
             output[i] /= other.data[i];
         return output;
     }
     inline constexpr Array<Type, Size> operator%(const Array<Type, Size>& other)
-            noexcept requires std::integral<Type> {
+            const noexcept requires std::integral<Type> {
         Array<Type, Size> output = *this;
         for (std::size_t i = 0; i < Size; ++i)
             output[i] %= other.data[i];
@@ -838,6 +1138,10 @@ public:
         return !(*this == other);
     }
 };
+
+/// @brief Shorter alias for `MemSlice`
+template <typename Type>
+using Slice = MemSlice<Type>;
 
 /// @brief Compile-time enum used for specifying the formula
 ///        applied when reallocating array buffers
@@ -863,6 +1167,8 @@ private:
     std::size_t realloc(std::size_t new_count, bool update_cap = true) {
         Type* old = data;
         std::size_t old_cap = cap;
+        std::size_t old_count = count;
+
         if (update_cap) {
             if constexpr (Grow == GrowType::OneAndHalf) // Update capacity accordingly
                 cap = new_count + new_count / 2;
@@ -870,18 +1176,18 @@ private:
                 cap = new_count * 2;
         } else cap = new_count; // We just make them equal
 
-        data = VECLIB_NONCONSTRUCTOR_NEW(cap, Type);
-        if (new_count < count && old) { // We do all of this only if the old buffer had slots
-            for (std::size_t i = new_count; i < count; ++i)
-                delete &old[i]; // We should be fine with destructive delete
-            // And nondestructive delete for unoccupied slots in the old buffer
-            VECLIB_NONDESTRUCTOR_DELETE(&old[count], old_cap, Type);
+        Type* new_data = VECLIB_NONCONSTRUCTOR_NEW(cap, Type);
+        std::size_t to_copy = old ? /*min*/ (old_count < new_count ? old_count : new_count) : 0;
+        for (std::size_t i = 0; i < to_copy; ++i)
+            new(&new_data[i]) Type(std::move(old[i]));
+
+        if (old) {
+            for (std::size_t i = 0; i < old_count; ++i)
+                old[i].~Type();
+            VECLIB_NONDESTRUCTOR_DELETE(old, old_cap, Type);
         }
-        // We copy over the old elements if there were any
-        if (old) for (std::size_t i = 0; i < count; ++i) {
-            data[i] = std::move(old[i]);
-            delete &old[i]; // And delete the old ones
-        }
+
+        data = new_data;
         return new_count;
     }
 
@@ -951,43 +1257,55 @@ public:
             new(&data[i]) Type(begin[i]);
     }
 
-    Vector(const std::initializer_list<const Type&>& args) {
+    Vector(const std::initializer_list<Type>& args) {
         count = realloc(args.size());
         for (std::size_t i = 0; i < count; ++i)
             new(&data[i]) Type(args.begin()[i]); // Use placement new and `Type`'s copy constructor
     }
     inline constexpr Vector<Type, Grow>& operator=(const std::initializer_list<Type>& args) {
+        clear();
         count = realloc(args.size());
         for (std::size_t i = 0; i < count; ++i)
             new(&data[i]) Type(args.begin()[i]);
         return *this;
     }
 
-    Vector(const Vector<Type, Grow>& other) : count(other.count), cap(other.cap) {
-        realloc(cap, false); // Allocate the exact amount, fine since data was nullptr
-        for (std::size_t i = 0; i < count; ++i)
-            data[i] = other.data[i]; // Copy the slots that were occupied
+    Vector(const Vector<Type, Grow>& other) : data(nullptr), count(0), cap(0) {
+        if (other.empty()) return;
+        cap = other.cap;
+        data = VECLIB_NONCONSTRUCTOR_NEW(cap, Type);
+        for (std::size_t i = 0; i < other.count; ++i)
+            new(&data[i]) Type(other.data[i]);
+        count = other.count;
     }
     inline constexpr Vector<Type, Grow>& operator=(const Vector<Type, Grow>& other) {
-        realloc(cap, false); // Allocate the exact amount, fine since data was nullptr
-        for (std::size_t i = 0; i < count; ++i)
-            data[i] = other.data[i]; // Copy the slots that were occupied
+        if (this == &other) return *this;
+        clear();
+        if (other.empty()) return *this;
+        cap = other.cap;
+        data = VECLIB_NONCONSTRUCTOR_NEW(cap, Type);
+        for (std::size_t i = 0; i < other.count; ++i)
+            new(&data[i]) Type(other.data[i]);
+        count = other.count;
         return *this;
     }
 
     Vector(Vector<Type, Grow>&& other) noexcept
-            : count(other.count), cap(other.cap), data(other.data) {
+            : data(other.data), count(other.count), cap(other.cap) {
         other.count = 0;
         other.cap = 0;
         other.data = nullptr;
     }
     inline constexpr Vector<Type, Grow>& operator=(Vector<Type, Grow>&& other) noexcept {
+        if (this == &other) return *this;
+        clear();
         count = other.count;
         cap = other.cap;
         data = other.data;
         other.count = 0;
         other.cap = 0;
         other.data = nullptr;
+        return *this;
     }
 
     inline constexpr const Type* get() const noexcept { return data; }
@@ -996,10 +1314,11 @@ public:
     inline constexpr bool empty() const noexcept { return count == 0; }
 
     inline constexpr void clear() noexcept {
+        if (!data) return;
         for (std::size_t i = 0; i < count; ++i)
-            delete &data[i]; // Call the destructor of the placed elements
-        VECLIB_NONDESTRUCTOR_DELETE(&data[count], cap, Type); // Don't call it for the extra slots
-        data = nullptr; // The buffer is now empty
+            data[i].~Type();
+        VECLIB_NONDESTRUCTOR_DELETE(data, cap, Type);
+        data = nullptr;
         count = 0;
         cap = 0;
     }
@@ -1029,9 +1348,9 @@ public:
     }
 
     inline constexpr void swap(Vector<Type, Grow>& other) {
-        Vector<Type, Grow> self = *this; // That one trick -_-
-        *this = other;
-        other = self;
+        Vector<Type, Grow> self = std::move(*this); // That one trick -_-
+        *this = std::move(other);
+        other = std::move(self);
     }
 
     inline constexpr std::size_t remove(Type* itr) {
@@ -1042,6 +1361,107 @@ public:
             throw std::out_of_range("Vector<Type, Grow>.remove(Type*): Pointer is out of range");
         #endif // VECLIB_ASSERT_NOEXCEPT
         return pop_at(itr - data); // Reuse code
+    }
+
+    /// @brief Construct a `MemSlice` object referencing the contents of this vector,
+    ///        optionally specifying the starting index and the ending index (which
+    ///        is exclusive)
+    /// @param start The starting index
+    /// @param end The ending index
+    /// @return A `MemSlice` object referencing the specified range
+    inline constexpr MemSlice<Type> slice(std::size_t start, std::size_t end) {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data);
+        assert(end >= start);
+        assert(start < count);
+        assert(end <= count);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr) throw std::runtime_error(
+            "Vector<Type, Grow>.slice(std::size_t, std::size_t): Data pointer is nullptr");
+        if (end < start) throw std::out_of_range(
+            "Vector<Type, Grow>.slice(std::size_t, std::size_t): End index is smaller than start index");
+        if (start >= count) throw std::out_of_range(
+            "Vector<Type, Grow>.slice(std::size_t, std::size_t): Start index is out of bounds");
+        if (end > count) throw std::out_of_range(
+            "Vector<Type, Grow>.slice(std::size_t, std::size_t): End index is out of bounds");
+        #endif // VECLIB_ASSERT_NOEXCEPT
+        return MemSlice<Type>(data + start, end - start);
+    }
+    /// @brief Construct a `MemSlice` object referencing the contents of this vector,
+    ///        optionally specifying the starting index and the ending index (which
+    ///        is exclusive)
+    /// @param start The starting index
+    /// @param end The ending index
+    /// @return A `MemSlice` object referencing the specified range
+    inline constexpr MemSlice<Type> slice(std::size_t start = 0) {
+        // Use this workaround since we need a compile-time-known number for default arguments
+        std::size_t end = count;
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data);
+        assert(end >= start);
+        assert(start < count);
+        assert(end <= count);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr) throw std::runtime_error(
+            "Vector<Type, Grow>.slice(std::size_t, std::size_t): Data pointer is nullptr");
+        if (end < start) throw std::out_of_range(
+            "Vector<Type, Grow>.slice(std::size_t, std::size_t): End index is smaller than start index");
+        if (start >= count) throw std::out_of_range(
+            "Vector<Type, Grow>.slice(std::size_t, std::size_t): Start index is out of bounds");
+        if (end > count) throw std::out_of_range(
+            "Vector<Type, Grow>.slice(std::size_t, std::size_t): End index is out of bounds");
+        #endif // VECLIB_ASSERT_NOEXCEPT
+        return MemSlice<Type>(data + start, end - start);
+    }
+    /// @brief Construct a `MemSlice` object referencing the contents of this vector,
+    ///        optionally specifying the starting index and the ending index (which
+    ///        is exclusive)
+    /// @param start The starting index
+    /// @param end The ending index
+    /// @return A `MemSlice` object referencing the specified range
+    inline constexpr MemSlice<Type> slice(std::size_t start, std::size_t end) const {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data);
+        assert(end >= start);
+        assert(start < count);
+        assert(end <= count);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr) throw std::runtime_error(
+            "Vector<Type, Grow>.slice(std::size_t, std::size_t): Data pointer is nullptr");
+        if (end < start) throw std::out_of_range(
+            "Vector<Type, Grow>.slice(std::size_t, std::size_t): End index is smaller than start index");
+        if (start >= count) throw std::out_of_range(
+            "Vector<Type, Grow>.slice(std::size_t, std::size_t): Start index is out of bounds");
+        if (end > count) throw std::out_of_range(
+            "Vector<Type, Grow>.slice(std::size_t, std::size_t): End index is out of bounds");
+        #endif // VECLIB_ASSERT_NOEXCEPT
+        return MemSlice<Type>(data + start, end - start);
+    }
+    /// @brief Construct a `MemSlice` object referencing the contents of this vector,
+    ///        optionally specifying the starting index and the ending index (which
+    ///        is exclusive)
+    /// @param start The starting index
+    /// @param end The ending index
+    /// @return A `MemSlice` object referencing the specified range
+    inline constexpr MemSlice<Type> slice(std::size_t start = 0) const {
+        // Use this workaround since we need a compile-time-known number for default arguments
+        std::size_t end = count;
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data);
+        assert(end >= start);
+        assert(start < count);
+        assert(end <= count);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr) throw std::runtime_error(
+            "Vector<Type, Grow>.slice(std::size_t, std::size_t): Data pointer is nullptr");
+        if (end < start) throw std::out_of_range(
+            "Vector<Type, Grow>.slice(std::size_t, std::size_t): End index is smaller than start index");
+        if (start >= count) throw std::out_of_range(
+            "Vector<Type, Grow>.slice(std::size_t, std::size_t): Start index is out of bounds");
+        if (end > count) throw std::out_of_range(
+            "Vector<Type, Grow>.slice(std::size_t, std::size_t): End index is out of bounds");
+        #endif // VECLIB_ASSERT_NOEXCEPT
+        return MemSlice<Type>(data + start, end - start);
     }
 
     inline constexpr Type& first() noexcept { return data[0]; }
@@ -1060,6 +1480,7 @@ public:
         // We also cover the case in which data is nullptr since when it's cleared count is set to 0
         if (i >= count) throw std::out_of_range("Vector<Type, Grow>.at(std::size_t): Index is out of bounds");
         #endif // VECLIB_ASSERT_NOEXCEPT
+        return data[i];
     }
     inline constexpr const Type& at(std::size_t i) const {
         #ifdef VECLIB_ASSERT_NOEXCEPT
@@ -1068,6 +1489,7 @@ public:
         // We also cover the case in which data is nullptr since when it's cleared count is set to 0
         if (i >= count) throw std::out_of_range("Vector<Type, Grow>.at(std::size_t): Index is out of bounds");
         #endif // VECLIB_ASSERT_NOEXCEPT
+        return data[i];
     }
 
     inline constexpr Type& push_back(const Type& value) {
@@ -1191,35 +1613,108 @@ public:
         return count;
     }
 
-    inline constexpr Type* begin() noexcept { return data; }
-    inline constexpr const Type* begin() const noexcept { return data; }
+    inline constexpr Type* begin() {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr) throw std::runtime_error("Vector<Type, Grow>.begin(): Data pointer is nullptr");
+        #endif // VECLIB_ASSERT_NOEXCEPT
+        return data;
+    }
+    inline constexpr const Type* begin() const {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr) throw std::runtime_error("Vector<Type, Grow>.begin(): Data pointer is nullptr");
+        #endif // VECLIB_ASSERT_NOEXCEPT
+        return data;
+    }
 
-    inline constexpr Type* end() noexcept { return data + count; }
-    inline constexpr const Type* end() const noexcept { return data + count; }
+    inline constexpr Type* end() {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr) throw std::runtime_error("Vector<Type, Grow>.end(): Data pointer is nullptr");
+        #endif // VECLIB_ASSERT_NOEXCEPT
+        return count != 0 ? data + count : data;
+    }
+    inline constexpr const Type* end() const {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr) throw std::runtime_error("Vector<Type, Grow>.end(): Data pointer is nullptr");
+        #endif // VECLIB_ASSERT_NOEXCEPT
+        return count != 0 ? data + count : data;
+    }
 
-    inline constexpr ReverseMemIterator<Type> rbegin() noexcept {
+    inline constexpr ReverseMemIterator<Type> rbegin() {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr) throw std::runtime_error("Vector<Type, Grow>.rbegin(): Data pointer is nullptr");
+        #endif // VECLIB_ASSERT_NOEXCEPT
+        // Could this ternary check just be the old data + count - 1?
+        return ReverseMemIterator<Type>(count != 0 ? data + count - 1 : data);
+    }
+    inline constexpr const ReverseMemIterator<Type> rbegin() const {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr) throw std::runtime_error("Vector<Type, Grow>.rbegin(): Data pointer is nullptr");
+        #endif // VECLIB_ASSERT_NOEXCEPT
+        return ReverseMemIterator<Type>(count != 0 ? data + count - 1 : data);
+    }
+
+    inline constexpr ReverseMemIterator<Type> rend() {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr) throw std::runtime_error("Vector<Type, Grow>.rend(): Data pointer is nullptr");
+        #endif // VECLIB_ASSERT_NOEXCEPT
+        return ReverseMemIterator<Type>(count != 0 ? data - 1 : data);
+    }
+    inline constexpr const ReverseMemIterator<Type> rend() const {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr) throw std::runtime_error("Vector<Type, Grow>.rend(): Data pointer is nullptr");
+        #endif // VECLIB_ASSERT_NOEXCEPT
+        return ReverseMemIterator<Type>(count != 0 ? data - 1 : data);
+    }
+
+    inline constexpr const Type* cbegin() const {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr) throw std::runtime_error("Vector<Type, Grow>.cbegin(): Data pointer is nullptr");
+        #endif // VECLIB_ASSERT_NOEXCEPT
+        return data;
+    }
+
+    inline constexpr const Type* cend() const {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr) throw std::runtime_error("Vector<Type, Grow>.cend(): Data pointer is nullptr");
+        #endif // VECLIB_ASSERT_NOEXCEPT
+        return data + count;
+    }
+
+    inline constexpr const ReverseMemIterator<Type> crbegin() const {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr) throw std::runtime_error("Vector<Type, Grow>.crbegin(): Data pointer is nullptr");
+        #endif // VECLIB_ASSERT_NOEXCEPT
         return ReverseMemIterator<Type>(data + count - 1);
     }
-    inline constexpr const ReverseMemIterator<Type> rbegin() const noexcept {
-        return ReverseMemIterator<Type>(data + count - 1);
-    }
 
-    inline constexpr ReverseMemIterator<Type> rend() noexcept {
-        return ReverseMemIterator<Type>(data - 1);
-    }
-    inline constexpr const ReverseMemIterator<Type> rend() const noexcept {
-        return ReverseMemIterator<Type>(data - 1);
-    }
-
-    inline constexpr const Type* cbegin() const noexcept { return data; }
-
-    inline constexpr const Type* cend() const noexcept { return data + count; }
-
-    inline constexpr const ReverseMemIterator<Type> crbegin() const noexcept {
-        return ReverseMemIterator<Type>(data + count - 1);
-    }
-
-    inline constexpr const ReverseMemIterator<Type> crend() const noexcept {
+    inline constexpr const ReverseMemIterator<Type> crend() const {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr) throw std::runtime_error("Vector<Type, Grow>.crend(): Data pointer is nullptr");
+        #endif // VECLIB_ASSERT_NOEXCEPT
         return ReverseMemIterator<Type>(data - 1);
     }
 
@@ -1230,7 +1725,7 @@ public:
             ++data[i];
         return *this;
     }
-    inline constexpr Vector<Type, Grow>& operator++(int) noexcept requires std::integral<Type> {
+    inline constexpr Vector<Type, Grow> operator++(int) noexcept requires std::integral<Type> {
         Vector<Type, Grow> self = *this;
         for (std::size_t i = 0; i < count; ++i)
             ++data[i];
@@ -1241,7 +1736,7 @@ public:
             --data[i];
         return *this;
     }
-    inline constexpr Vector<Type, Grow>& operator--(int) noexcept requires std::integral<Type> {
+    inline constexpr Vector<Type, Grow> operator--(int) noexcept requires std::integral<Type> {
         Vector<Type, Grow> self = *this;
         for (std::size_t i = 0; i < count; ++i)
             --data[i];
@@ -1310,7 +1805,7 @@ public:
     }
 
     inline constexpr Vector<Type, Grow> operator+(const Vector<Type, Grow>& other)
-            noexcept requires std::integral<Type> {
+            const requires std::integral<Type> {
         #ifdef VECLIB_ASSERT_NOEXCEPT
         assert(count == other.count);
         #else // VECLIB_ASSERT_NOEXCEPT
@@ -1323,7 +1818,7 @@ public:
         return output;
     }
     inline constexpr Vector<Type, Grow> operator-(const Vector<Type, Grow>& other)
-            noexcept requires std::integral<Type> {
+            const requires std::integral<Type> {
         #ifdef VECLIB_ASSERT_NOEXCEPT
         assert(count == other.count);
         #else // VECLIB_ASSERT_NOEXCEPT
@@ -1336,7 +1831,7 @@ public:
         return output;
     }
     inline constexpr Vector<Type, Grow> operator*(const Vector<Type, Grow>& other)
-            noexcept requires std::integral<Type> {
+            const requires std::integral<Type> {
         #ifdef VECLIB_ASSERT_NOEXCEPT
         assert(count == other.count);
         #else // VECLIB_ASSERT_NOEXCEPT
@@ -1349,7 +1844,7 @@ public:
         return output;
     }
     inline constexpr Vector<Type, Grow> operator/(const Vector<Type, Grow>& other)
-            noexcept requires std::integral<Type> {
+            const requires std::integral<Type> {
         #ifdef VECLIB_ASSERT_NOEXCEPT
         assert(count == other.count);
         #else // VECLIB_ASSERT_NOEXCEPT
@@ -1362,7 +1857,7 @@ public:
         return output;
     }
     inline constexpr Vector<Type, Grow> operator%(const Vector<Type, Grow>& other)
-            noexcept requires std::integral<Type> {
+            const requires std::integral<Type> {
         #ifdef VECLIB_ASSERT_NOEXCEPT
         assert(count == other.count);
         #else // VECLIB_ASSERT_NOEXCEPT
@@ -1376,7 +1871,7 @@ public:
     }
 
     inline constexpr bool operator==(const Vector<Type, Grow>& other)
-            const noexcept requires std::equality_comparable<Type> {
+            const requires std::equality_comparable<Type> {
         #ifdef VECLIB_ASSERT_NOEXCEPT
         assert(count == other.count);
         #else // VECLIB_ASSERT_NOEXCEPT
@@ -1388,7 +1883,7 @@ public:
         return true;
     }
     inline constexpr bool operator!=(const Vector<Type, Grow>& other)
-            const noexcept requires std::equality_comparable<Type> {
+            const requires std::equality_comparable<Type> {
         return !(*this == other);
     }
 };

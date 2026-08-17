@@ -3,30 +3,30 @@
 
 int main() {
 
-    std::cout << "veclib::Array:\n";
-    veclib::Array<int, 5> array = {1, 2, 3, 4, 5};
-    veclib::Array<int, 5> layer = {2, 4, 6, 8, 10};
+    std::cout << "veclib::Vector:\n";
+    veclib::Vector<int> vector = {1, 2, 3, 4, 5};
+    veclib::Vector<int> layer = {2, 4, 6, 8, 10};
 
-    std::cout << "  Array at 3: " << array[3] << '\n';
-    std::cout << "  Array.at(3): " << array.at(3) << '\n';
-    std::cout << "  Array.first(): " << array.first() << ", Array.last(): " << array.last() << '\n';
-    std::cout << "  Array.size(): " << array.size() << '\n';
+    std::cout << "  Vector at 3: " << vector[3] << '\n';
+    std::cout << "  Vector.at(3): " << vector.at(3) << '\n';
+    std::cout << "  Vector.first(): " << vector.first() << ", Vector.last(): " << vector.last() << '\n';
+    std::cout << "  Vector.size(): " << vector.size() << '\n';
 
-    std::cout << "  Array iterator:\n";
-    for (const int& x : array) {
+    std::cout << "  Vector iterator:\n";
+    for (const int& x : vector) {
         std::cout << "   " << x << '\n';
     }
-    std::cout << "  Added arrays:\n";
-    for (const auto& x : (array + layer)) {
+    std::cout << "  Added vectors:\n";
+    for (const auto& x : (vector + layer)) {
         std::cout << "   " << x << '\n';
     }
     std::cout << "  Prefix incremented:\n";
-    for (const int& x : ++array) {
+    for (const int& x : ++vector) {
         std::cout << "   " << x << '\n';
     }
-    --array; // Decrement it
+    --vector; // Decrement it
 
-    veclib::MemSlice<int> slice = array.slice(3); // 4, 5
+    veclib::MemSlice<int> slice = vector.slice(3); // 4, 5
     std::cout << "  Sliced from 3:\n";
     for (const int& x : slice) {
         std::cout << "   " << x << '\n';
@@ -50,8 +50,8 @@ int main() {
         std::cout << "   " << x << '\n';
     }
 
-    veclib::Array<int, 0> empty = {};
-    std::cout << "  Empty array:\n";
+    veclib::Vector<int> empty = {};
+    std::cout << "  Empty vector:\n";
     for (const auto& x : empty) {
         std::cout << "   " << x << '\n';
     }
