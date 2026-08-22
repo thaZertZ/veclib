@@ -2404,6 +2404,81 @@ public:
     #endif // VECLIB_NO_OPERATOR_OVERLOADS
 };
 
+template <std::size_t Size>
+class Bitset {
+private:
+    // Sneaky formula to nudge the size into the next byte
+    #define VECLIB_BITSET_BYTESIZE(Size) (Size + (CHAR_BIT - 1) / 8)
+
+    std::uint8_t data[VECLIB_BITSET_BYTESIZE] = {0}; // Zero-initialization
+
+    inline constexpr bool get_at(std::size_t index) const noexcept {
+        return data[index / 8] & (1 << (index % CHAR_BIT));
+    }
+
+    inline constexpr set_at(std::size_t index, bool value) noexcept {
+        
+    }
+
+    template <std::size_t ProxySize>
+    class BitsetProxy {
+    friend Bitset;
+    private:
+        Bitset<ProxySize>& bitset;
+        std::size_t index;
+
+    public:
+        BitsetProxy() = delete;
+        ~BitsetProxy() noexcept = default;
+
+        BitsetProxy(Bitset<ProxySize>& b, std::size_t i) noexcept
+            : bitset(b), index(i) {}
+
+        inline constexpr operator bool() {
+            return 
+        }
+    };
+
+public:
+    Bitset() noexcept = default;
+    ~Bitset() noexcept = default;
+
+    Bitset(const std::initializer_list<std::uint8_t>& args) {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(args.size() <= VECLIB_BITSET_BYTESIZE(Size));
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (args.size() > VECLIB_BITSET_BYTESIZE(Size)) throw std::invalid_argument(
+            "Bitset<Size>::Bitset(const std::initializer_list<std::uint8_t>&): Too many bytes provided");
+        #endif // VECLIB_ASSERT_NOEXCEPT
+        for (std::size_t i = 0; i < args.size(); ++i)
+            data[i] = args.begin()[i];
+        // Needed?
+        for (std::size_t i = args.size(); i < VECLIB_BITSET_BYTESIZE(Size); ++i)
+            data[i] = 0;
+    }
+
+    Bitset(const std::initializer_list<bool>& args) {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(args.size() <= Size);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (args.size() > Size) throw std::invalid_argument(
+            "Bitset<Size>::Bitset(const std::initializer_list<bool>&): Too many bits provided");
+        #endif // VECLIB_ASSERT_NOEXCEPT
+        for (std::size_t i = 0; i < args.size(); ++i)
+            data[i / CHAR_BIT] |= (args.begin()[i] ? 1 : 0) << (i % CHAR_BIT);
+        for (std::size_t i = args.size(); i < Size; ++i)
+            data[i / CHAR_BIT] &= ~(1 << i % CHAR_BIT); // Set all others to 0
+    }
+
+    inline constexpr const std::uint8_t* get() const noexcept { return data; }
+    inline constexpr std::size_t size() const noexcept { return Size; }
+    inline constexpr std::size_t bytesize() const noexcept { return VECLIB_BITSET_BYTESIZE(Size); }
+
+    
+};
+
+#undef VECLIB_BITSET_BYTESIZE
+
 } // namespace veclib
 
 #endif // ARRAY_HPP
