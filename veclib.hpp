@@ -14,8 +14,10 @@
 /// @brief A collection of array-like data structures (arrays, vectors, slices, lists...)
 namespace veclib {
 
+
 /// @brief Alias for the signed equivalent of `std::size_t`
 using diff_t = std::make_signed_t<std::size_t>;
+
 
 /// @brief Macro function to allocate heap memory without calling
 ///        the constructor of the specified type
@@ -31,8 +33,25 @@ using diff_t = std::make_signed_t<std::size_t>;
 #define VECLIB_NONDESTRUCTOR_DELETE(data, count, type) \
     (::operator delete((data), (count) * sizeof(type)))
 
+
+// The following macros can be used inside veclib to change the behaviour of the API:
+// VECLIB_ASSERT_NOEXCEPT           Use asserts instead of exceptions when checking runtime cases like null pointers
+// VECLIB_NO_OPERATOR_OVERLOADS     Avoid overloading unnecessary operators for most types defined by veclib
+// VECLIB_USE_INDEXED_ITERATORS     Use the `IndexedIterator` and `ReverseIndexedIterator` types as the default iterator type
+//                                  All types that may require distinction between the two iterator types implement
+//                                  iterator functions prefixed with `p_` for the pointer-based version and `i_` for the
+//                                  index-based version
+//                                  The regular non-prefixed versions are defined according to the state of this macro
+//                                  (defined or not). Note that reverse iterators are not available for the index-based
+//                                  methods, even though a type is defined for them. This is because the ending iterators
+//                                  can't have an index that is less than 0, therefore no reverse methods are implemented.
+//                                  This doesn't mean that a `ReverseIndexedIterator` can't be used: we can construct one
+//                                  out of an `IndexedIterator`, to function like a regular reverse iterator, but without
+//                                  any way of identifying an ending state
+
+
 /// @brief A reverse iterator for contiguous memory regions
-/// @tparam Type The type begin iterated over
+/// @tparam Type The type being iterated over
 template <typename Type>
 class ReverseMemIterator {
 private:
@@ -191,6 +210,323 @@ public:
     }
 };
 
+/// @brief Helper concept for types used for indexing into containers
+/// @tparam Type A type that satifies the following requirements:
+///
+///         - It is incrementable and decrementable through prefix operators
+///
+///         - It can be assigned with an increment and decrement value that
+///           can be of type `std::size_t`, `Type` or both
+///
+///         - It can be compared for equality against an object of the same type
+template <typename Type>
+concept IndexerType = requires (Type index, std::size_t i) {
+    ++std::declval<Type&>(); // Incrementable
+    --std::declval<Type&>(); // Decrementable
+    (std::declval<Type&>() += i) || (std::declval<Type&>() += std::declval<Type&>()); // Assignment-incrementable
+    (std::declval<Type&>() -= i) || (std::declval<Type&>() -= std::declval<Type&>()); // Assignment-decrementable
+    std::declval<Type>() == std::declval<Type>(); // Equality comparable
+};
+
+template <typename Type, typename Item, typename Index>
+concept IndexableViaOperator = requires () {
+    requires (IndexerType<Index>);
+    //Type::operator[](index) -> item;
+    { std::declval<Type>()[std::declval<Index>()] } -> std::same_as<std::remove_const_t<Item&>>; // Works with const and non-const
+};
+template <typename Type, typename Item, typename Index>
+concept IndexableViaAt = requires () {
+    requires (IndexerType<Index>);
+    //Type::at(index) -> item;
+    { std::declval<Type>().at(std::declval<Index>()) } -> std::same_as<std::remove_const_t<Item&>>; // Works with const and non-const
+};
+
+/// @brief Helper concept for types that can be indexed by other types that
+///        satisfy the requirements of the `IndexerType` concept
+/// @tparam Type A type that provides an `at()` method taking a type
+///         constrained by `IndexerType` as a parameter, or an overload of
+///         `operator[]` that takes the same type as a parameter
+/// @tparam Index A type used for indexing into `Type` that satisfies the
+///         requirements of `IndexerType`. It is used for the member function
+///         parameter constraints on `Type`
+template <typename Type, typename Item, typename Index = std::size_t>
+concept Indexable = requires () {
+    requires (IndexerType<Index>);
+    requires (IndexableViaOperator<Type, Item, Index>) || (IndexableViaAt<Type, Item, Index>);
+};
+
+/// @brief Compile-time enum used for choosing if to index elements with an
+///        overload of `operator[]` or an `at()` method
+enum class PreferredIndexing : std::uint8_t {
+    Operator, AtMethod
+};
+
+/// @brief This kind of iterator aims to avoid iterator invalidation
+///        caused by memory reallocations, for example in vectors,
+///        by keeping a pointer to an container and an index into
+///        that container
+/// @tparam Container The type of the container, which must satisfy the
+///         requirements of the `Indexable` concept
+/// @tparam Item The type held inside the container, it defaults to a
+///         type definition inside the specified container
+/// @tparam IndexType The type used to index into the container, it defaults
+///         to `std::size_t`, any type specified as a parameter in this field
+///         must satisfy the requirements of the `IndexerType` concept
+/// @tparam Pref The preferred indexing method, whether it is an overload of
+///         `operator[]` or an `at()` method defined by `Container`. This is taken
+///         into account only if `Container` provides both member functions
+template <typename Container, typename Item = Container::Item, IndexerType IndexType = std::size_t, PreferredIndexing Pref = PreferredIndexing::Operator>
+requires (Indexable<Container, Item, IndexType>) // This is the only way to add `Item` and `IndexType` as a template parameter for `Indexable`
+class IndexedIterator {
+private:
+    Container* obj = nullptr;
+    IndexType index = 0;
+
+    /// @brief Utility type alias for not repeating ourselves
+    using Self = IndexedIterator<Container, Item, IndexType>;
+
+    inline constexpr Item& deref() requires (IndexableViaOperator<Container, Item, IndexType>) {
+        return (*obj)[index]; // Do not care about nullptr since we do that at the public API level
+    }
+    inline constexpr Item& deref() requires (IndexableViaAt<Container, Item, IndexType>) {
+        return obj->at(index);
+    }
+    inline constexpr Item& deref() requires (Indexable<Container, Item, IndexType>) {
+        if constexpr (Pref == PreferredIndexing::Operator)
+            return (*obj)[index];
+        else // Pref == PreferredIndexing::AtMethod
+            return obj->at(index);
+    }
+
+public:
+    /// @brief Default constructor
+    IndexedIterator() noexcept = default;
+    /// @brief Default destructor
+    ~IndexedIterator() noexcept = default;
+
+    /// @brief Construct an `IndexedIterator` object with a pointer to
+    ///        a `Container` and an index into it
+    /// @param o The pointer to the container
+    /// @param i The index into the container
+    IndexedIterator(Container* o, const IndexType& i) noexcept
+        : obj(o), index(i) {}
+
+    /// @brief Receive a const pointer to the referenced item
+    /// @return A const pointer to the item referenced by this iterator
+    inline constexpr const Item* get() const {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(obj != nullptr);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (obj == nullptr)
+            throw std::runtime_error("IndexedIterator<Container, Item, IndexType>.get(): Container pointer is nullptr");
+        #endif // VECLIB_ASSERT_NOEXCEPT
+        return &deref();
+    }
+    /// @brief Receive a const pointer to the referenced `Container` object
+    /// @return A const pointer to the internally referenced container
+    inline constexpr const Container* get_container() const noexcept { return obj; }
+
+    // No noexcept in every increment operator because custom overloads could throw
+
+    inline constexpr Self& operator++() {
+        ++index;
+        return *this;
+    }
+    inline constexpr Self operator++(int) {
+        Self self = *this;
+        ++(*this);
+        return self;
+    }
+    inline constexpr Self& operator--() {
+        --index;
+        return *this;
+    }
+    inline constexpr Self operator--(int) {
+        Self self = *this;
+        --(*this);
+        return self;
+    }
+
+    inline constexpr Self& operator+=(const IndexType& x) requires (!std::same_as<IndexType, std::size_t>) {
+        // Maybe `same_as` could become `convertible_to`
+        index += x;
+        return *this;
+    }
+    inline constexpr Self& operator+=(std::size_t x) {
+        index += x;
+        return *this;
+    }
+    inline constexpr Self& operator-=(const IndexType& x) requires (!std::same_as<IndexType, std::size_t>) {
+        index -= x;
+        return *this;
+    }
+    inline constexpr Self& operator-=(std::size_t x) {
+        index -= x;
+        return *this;
+    }
+
+    inline constexpr Self operator+(const IndexType& x) requires (!std::same_as<IndexType, std::size_t>) {
+        Self self = *this;
+        self += x;
+        return self;
+    }
+    inline constexpr Self operator+(std::size_t x) {
+        Self self = *this;
+        self += x;
+        return self;
+    }
+    inline constexpr Self operator-(const IndexType& x) requires (!std::same_as<IndexType, std::size_t>) {
+        Self self = *this;
+        self -= x;
+        return self;
+    }
+    inline constexpr Self operator-(std::size_t x) {
+        Self self = *this;
+        self -= x;
+        return self;
+    }
+
+    inline constexpr Item& operator*() const {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(obj != nullptr);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (obj == nullptr)
+            throw std::runtime_error("IndexedIterator<Container, Item, IndexType::operator*(): Container pointer is nullptr");
+        #endif // VECLIB_ASSERT_NOEXCEPT
+        return deref(); // We required that a `Container` object can be indexed by `index` and the returned value is of type `Item`
+    }
+
+    inline constexpr bool operator==(const Self& other) const noexcept {
+        return obj == other.obj && index == other.index; // We required that the type of `index` is equality comparable
+    }
+    inline constexpr bool operator!=(const Self& other) const noexcept {
+        return !(*this == other);
+    }
+
+    inline constexpr operator bool() const noexcept {
+        return obj != nullptr;
+    }
+};
+
+/// @brief The reverse counterpart of `IndexedIterator`.
+///        This kind of iterator aims to avoid iterator invalidation
+///        caused by memory reallocations, for example in vectors,
+///        by keeping a pointer to an container and an index into
+///        that container
+/// @tparam Container The type of the container, which must satisfy the
+///         requirements of the `Indexable` concept
+/// @tparam Item The type held inside the container, it defaults to a
+///         type definition inside the specified container
+/// @tparam IndexType The type used to index into the container, it defaults
+///         to `std::size_t`, any type specified as a parameter in this field
+///         must satisfy the requirements of the `IndexerType` concept
+/// @tparam Pref The preferred indexing method, whether it is an overload of
+///         `operator[]` or an `at()` method defined by `Container`. This is taken
+///         into account only if `Container` provides both member functions
+template <typename Container, typename Item = Container::Item, IndexerType IndexType = std::size_t, PreferredIndexing Pref = PreferredIndexing::Operator>
+requires (Indexable<Container, Item, IndexType>) // This is the only way to add `Item` and `IndexType` as a template parameter for `Indexable`
+class ReverseIndexedIterator {
+private:
+    IndexedIterator<Container, Item, IndexType, Pref> itr = IndexedIterator<Container, Item, IndexType, Pref>();
+
+    using Self = ReverseIndexedIterator<Container, Item, IndexType, Pref>;
+
+public:
+    /// @brief Default constructor
+    ReverseIndexedIterator() noexcept = default;
+    /// @brief Default destructor
+    ~ReverseIndexedIterator() noexcept = default;
+
+    /// @brief Construct a `ReverseIndexedIterator` object with a pointer to
+    ///        a `Container` and an index into it
+    /// @param o The pointer to the container
+    /// @param i The index into the container
+    ReverseIndexedIterator(Container* o, const IndexType& i) noexcept
+        : itr(o, i) {}
+
+    ReverseIndexedIterator(IndexedIterator<Container, Item, IndexType, Pref> i /*copy is not expensive*/) noexcept
+        : itr(i) {}
+
+    /// @brief Receive a const pointer to the referenced item
+    /// @return A const pointer to the item referenced by this iterator
+    inline constexpr const Item* get() const { return itr.get(); }
+    /// @brief Receive a const pointer to the referenced `Container` object
+    /// @return A const pointer to the internally referenced container
+    inline constexpr const Container* get_container() const noexcept { return itr.get_container(); }
+
+    inline constexpr Self& operator++() noexcept {
+        --itr;
+        return *this;
+    }
+    inline constexpr Self operator++(int) noexcept {
+        Self self = *this;
+        --(*this);
+        return self;
+    }
+    inline constexpr Self& operator--() noexcept {
+        ++itr;
+        return *this;
+    }
+    inline constexpr Self operator--(int) noexcept {
+        Self self = *this;
+        ++(*this);
+        return self;
+    }
+
+    inline constexpr Self& operator+=(const IndexType& x) requires (!std::same_as<IndexType, std::size_t>) {
+        itr -= x;
+        return *this;
+    }
+    inline constexpr Self& operator+=(std::size_t x) {
+        itr -= x;
+        return *this;
+    }
+    inline constexpr Self& operator-=(const IndexType& x) requires (!std::same_as<IndexType, std::size_t>) {
+        itr += x;
+        return *this;
+    }
+    inline constexpr Self& operator-=(std::size_t x) {
+        itr += x;
+        return *this;
+    }
+
+    inline constexpr Self operator+(const IndexType& x) requires (!std::same_as<IndexType, std::size_t>) {
+        Self self = *this;
+        self += x; // This should not be changed since it is already the reverse behaviour
+        return self;
+    }
+    inline constexpr Self operator+(std::size_t x) {
+        Self self = *this;
+        self += x;
+        return self;
+    }
+    inline constexpr Self operator-(const IndexType& x) requires (!std::same_as<IndexType, std::size_t>) {
+        Self self = *this;
+        self -= x;
+        return self;
+    }
+    inline constexpr Self operator-(std::size_t x) {
+        Self self = *this;
+        self -= x;
+        return self;
+    }
+
+    inline constexpr Item& operator*() const {
+        return *itr;
+    }
+
+    inline constexpr bool operator==(const Self& other) const noexcept {
+        return itr == other.itr;
+    }
+    inline constexpr bool operator!=(const Self& other) const noexcept {
+        return !(*this == other);
+    }
+
+    inline constexpr operator bool() const noexcept {
+        return (bool)itr; // Explicit cast
+    }
+};
+
 /// @brief Memory slice class
 /// @tparam Type The type of element being referenced
 template <typename Type>
@@ -200,6 +536,10 @@ private:
     std::size_t count = 0;
 
 public:
+
+    /// @brief Make the template parameter accessible to iterators
+    using Item = Type;
+
     /// @brief Default constructor
     MemSlice() noexcept = default;
     /// @brief Default destructor
@@ -521,6 +861,8 @@ public:
         return self;
     }
 
+    #ifndef VECLIB_NO_OPERATOR_OVERLOADS // We create extra operator overloads unless it's not requested
+
     /// @brief Operator overload for calling `grow(x)`
     inline constexpr MemSlice<Type>& operator+=(std::size_t x) noexcept { return grow(x); }
     /// @brief Operator overload for calling `grow_copy(x)`
@@ -556,6 +898,8 @@ public:
     inline constexpr MemSlice<Type>& operator--() { return consume_back(); }
     /// @brief Operator overload for calling `consume_back_copy()`
     inline constexpr MemSlice<Type> operator-() const { return consume_back_copy(); }
+
+    #endif // VECLIB_NO_OPERATOR_OVERLOADS
 
     /// @brief Receive a forward iterator to the first element
     /// @return A pointer to the first element
@@ -689,6 +1033,10 @@ public:
     }
 };
 
+/// @brief Shorter alias for `MemSlice`
+template <typename Type>
+using Slice = MemSlice<Type>;
+
 /// @brief Static array class
 /// @tparam Type The type of each element in the array
 /// @tparam Size The size of the array
@@ -698,6 +1046,10 @@ private:
     Type data[Size] = {};
 
 public:
+
+    /// @brief Make the template parameter accessible to iterators
+    using Item = Type;
+
     /// @brief Default constructor
     Array() noexcept = default;
     /// @brief Default destructor
@@ -876,6 +1228,21 @@ public:
     /// @return A const reference to the element at the specified index
     inline constexpr const Type& operator[](std::size_t i) const noexcept { return data[i]; }
 
+    #ifndef VECLIB_NO_OPERATOR_OVERLOADS // We create extra operator overloads unless it's not requested
+
+    /// @brief Index the array circularly, preventing any out-of-bounds
+    ///        access and wrapping around once the maximum index is reached
+    /// @param i The index into the array
+    /// @return A reference to the element at the specified index
+    inline constexpr Type& operator()(std::size_t i) noexcept { return data[i % Size]; }
+    /// @brief Index the array circularly, preventing any out-of-bounds
+    ///        access and wrapping around once the maximum index is reached
+    /// @param i The index into the array
+    /// @return A const reference to the element at the specified index
+    inline constexpr const Type& operator()(std::size_t i) const noexcept { return data[i % Size]; }
+
+    #endif // VECLIB_NO_OPERATOR_OVERLOADS
+
     /// @brief Index the array with bounds checking
     /// @param i The index into the array
     /// @return A reference to the element at the specified index
@@ -905,6 +1272,20 @@ public:
         if (i > Size) throw std::out_of_range("Array<Type, Size>.at(std::size_t): Index is out of bounds");
         #endif // VECLIB_ASSERT_NOEXCEPT
         return data[i];
+    }
+    /// @brief Index the array circularly, preventing any out-of-bounds
+    ///        access and wrapping around once the maximum index is reached
+    /// @param i The index into the array
+    /// @return A reference to the element at the specified index
+    inline constexpr Type& circular_at(std::size_t i) noexcept {
+        return data[i % Size]; // Never goes out of bounds
+    }
+    /// @brief Index the array circularly, preventing any out-of-bounds
+    ///        access and wrapping around once the maximum index is reached
+    /// @param i The index into the array
+    /// @return A const reference to the element at the specified index
+    inline constexpr const Type& circular_at(std::size_t i) const noexcept {
+        return data[i % Size]; // Never goes out of bounds
     }
 
     /// @brief Receive a forward iterator to the first element of the array
@@ -1035,6 +1416,8 @@ public:
         return ReverseMemIterator<Type>(data - 1);
     }
 
+    #ifndef VECLIB_NO_OPERATOR_OVERLOADS // We create extra operator overloads unless it's not requested
+
     // Arithmetic operations for integral types
 
     inline constexpr Array<Type, Size>& operator++() noexcept requires std::integral<Type> {
@@ -1137,11 +1520,9 @@ public:
             const noexcept requires std::equality_comparable<Type> {
         return !(*this == other);
     }
-};
 
-/// @brief Shorter alias for `MemSlice`
-template <typename Type>
-using Slice = MemSlice<Type>;
+    #endif // VECLIB_NO_OPERATOR_OVERLOADS
+};
 
 /// @brief Compile-time enum used for specifying the formula
 ///        applied when reallocating array buffers
@@ -1158,6 +1539,9 @@ private:
     Type* data = nullptr;
     std::size_t count = 0;
     std::size_t cap = 0;
+
+    //using IdxForwIterator = IndexedIterator<Vector<Type, Grow>, Type, std::size_t, PreferredIndexing::Operator>;
+    //using ConstIdxForwIterator = IndexedIterator<Vector<Type, Grow>, const Type, std::size_t, PreferredIndexing::Operator>;
 
     /// @brief Reallocate the vector, doesn't update `count`, only `cap`
     /// @param new_count The new `count` value for the vector
@@ -1221,6 +1605,10 @@ private:
     }
 
 public:
+
+    /// @brief Make the template parameter accessible to iterators
+    using Item = Type;
+
     /// @brief Default constructor
     Vector() noexcept = default;
     /// @brief Destructor
@@ -1473,6 +1861,21 @@ public:
     inline constexpr Type& operator[](std::size_t i) noexcept { return data[i]; }
     inline constexpr const Type& operator[](std::size_t i) const noexcept { return data[i]; }
 
+    #ifndef VECLIB_NO_OPERATOR_OVERLOADS // We create extra operator overloads unless it's not requested
+
+    /// @brief Index the array circularly, preventing any out-of-bounds
+    ///        access and wrapping around once the maximum index is reached
+    /// @param i The index into the array
+    /// @return A reference to the element at the specified index
+    inline constexpr Type& operator()(std::size_t i) noexcept { return data[i % count]; }
+    /// @brief Index the array circularly, preventing any out-of-bounds
+    ///        access and wrapping around once the maximum index is reached
+    /// @param i The index into the array
+    /// @return A const reference to the element at the specified index
+    inline constexpr const Type& operator()(std::size_t i) const noexcept { return data[i % count]; }
+
+    #endif // VECLIB_NO_OPERATOR_OVERLOADS
+
     inline constexpr Type& at(std::size_t i) {
         #ifdef VECLIB_ASSERT_NOEXCEPT
         assert(i < count && data != nullptr);
@@ -1490,6 +1893,20 @@ public:
         if (i >= count) throw std::out_of_range("Vector<Type, Grow>.at(std::size_t): Index is out of bounds");
         #endif // VECLIB_ASSERT_NOEXCEPT
         return data[i];
+    }
+    /// @brief Index the array circularly, preventing any out-of-bounds
+    ///        access and wrapping around once the maximum index is reached
+    /// @param i The index into the array
+    /// @return A reference to the element at the specified index
+    inline constexpr Type& circular_at(std::size_t i) noexcept {
+        return data[i % count]; // Never goes out of bounds
+    }
+    /// @brief Index the array circularly, preventing any out-of-bounds
+    ///        access and wrapping around once the maximum index is reached
+    /// @param i The index into the array
+    /// @return A const reference to the element at the specified index
+    inline constexpr const Type& circular_at(std::size_t i) const noexcept {
+        return data[i % count]; // Never goes out of bounds
     }
 
     inline constexpr Type& push_back(const Type& value) {
@@ -1613,110 +2030,207 @@ public:
         return count;
     }
 
-    inline constexpr Type* begin() {
+    inline constexpr Type* p_begin() {
         #ifdef VECLIB_ASSERT_NOEXCEPT
         assert(data);
         #else // VECLIB_ASSERT_NOEXCEPT
-        if (data == nullptr) throw std::runtime_error("Vector<Type, Grow>.begin(): Data pointer is nullptr");
+        if (data == nullptr) throw std::runtime_error("Vector<Type, Grow>.p_begin(): Data pointer is nullptr");
         #endif // VECLIB_ASSERT_NOEXCEPT
         return data;
     }
-    inline constexpr const Type* begin() const {
+    inline constexpr const Type* p_begin() const {
         #ifdef VECLIB_ASSERT_NOEXCEPT
         assert(data);
         #else // VECLIB_ASSERT_NOEXCEPT
-        if (data == nullptr) throw std::runtime_error("Vector<Type, Grow>.begin(): Data pointer is nullptr");
+        if (data == nullptr) throw std::runtime_error("Vector<Type, Grow>.p_begin(): Data pointer is nullptr");
         #endif // VECLIB_ASSERT_NOEXCEPT
         return data;
     }
 
-    inline constexpr Type* end() {
+    inline constexpr Type* p_end() {
         #ifdef VECLIB_ASSERT_NOEXCEPT
         assert(data);
         #else // VECLIB_ASSERT_NOEXCEPT
-        if (data == nullptr) throw std::runtime_error("Vector<Type, Grow>.end(): Data pointer is nullptr");
+        if (data == nullptr) throw std::runtime_error("Vector<Type, Grow>.p_end(): Data pointer is nullptr");
         #endif // VECLIB_ASSERT_NOEXCEPT
         return count != 0 ? data + count : data;
     }
-    inline constexpr const Type* end() const {
+    inline constexpr const Type* p_end() const {
         #ifdef VECLIB_ASSERT_NOEXCEPT
         assert(data);
         #else // VECLIB_ASSERT_NOEXCEPT
-        if (data == nullptr) throw std::runtime_error("Vector<Type, Grow>.end(): Data pointer is nullptr");
+        if (data == nullptr) throw std::runtime_error("Vector<Type, Grow>.p_end(): Data pointer is nullptr");
         #endif // VECLIB_ASSERT_NOEXCEPT
         return count != 0 ? data + count : data;
     }
 
-    inline constexpr ReverseMemIterator<Type> rbegin() {
+    inline constexpr ReverseMemIterator<Type> p_rbegin() {
         #ifdef VECLIB_ASSERT_NOEXCEPT
         assert(data);
         #else // VECLIB_ASSERT_NOEXCEPT
-        if (data == nullptr) throw std::runtime_error("Vector<Type, Grow>.rbegin(): Data pointer is nullptr");
+        if (data == nullptr) throw std::runtime_error("Vector<Type, Grow>.p_rbegin(): Data pointer is nullptr");
         #endif // VECLIB_ASSERT_NOEXCEPT
         // Could this ternary check just be the old data + count - 1?
         return ReverseMemIterator<Type>(count != 0 ? data + count - 1 : data);
     }
-    inline constexpr const ReverseMemIterator<Type> rbegin() const {
+    inline constexpr const ReverseMemIterator<const Type> p_rbegin() const {
         #ifdef VECLIB_ASSERT_NOEXCEPT
         assert(data);
         #else // VECLIB_ASSERT_NOEXCEPT
-        if (data == nullptr) throw std::runtime_error("Vector<Type, Grow>.rbegin(): Data pointer is nullptr");
+        if (data == nullptr) throw std::runtime_error("Vector<Type, Grow>.p_rbegin(): Data pointer is nullptr");
         #endif // VECLIB_ASSERT_NOEXCEPT
-        return ReverseMemIterator<Type>(count != 0 ? data + count - 1 : data);
+        return ReverseMemIterator<const Type>(count != 0 ? data + count - 1 : data);
     }
 
-    inline constexpr ReverseMemIterator<Type> rend() {
+    inline constexpr ReverseMemIterator<Type> p_rend() {
         #ifdef VECLIB_ASSERT_NOEXCEPT
         assert(data);
         #else // VECLIB_ASSERT_NOEXCEPT
-        if (data == nullptr) throw std::runtime_error("Vector<Type, Grow>.rend(): Data pointer is nullptr");
+        if (data == nullptr) throw std::runtime_error("Vector<Type, Grow>.p_rend(): Data pointer is nullptr");
         #endif // VECLIB_ASSERT_NOEXCEPT
         return ReverseMemIterator<Type>(count != 0 ? data - 1 : data);
     }
-    inline constexpr const ReverseMemIterator<Type> rend() const {
+    inline constexpr const ReverseMemIterator<const Type> p_rend() const {
         #ifdef VECLIB_ASSERT_NOEXCEPT
         assert(data);
         #else // VECLIB_ASSERT_NOEXCEPT
-        if (data == nullptr) throw std::runtime_error("Vector<Type, Grow>.rend(): Data pointer is nullptr");
+        if (data == nullptr) throw std::runtime_error("Vector<Type, Grow>.p_rend(): Data pointer is nullptr");
         #endif // VECLIB_ASSERT_NOEXCEPT
-        return ReverseMemIterator<Type>(count != 0 ? data - 1 : data);
+        return ReverseMemIterator<const Type>(count != 0 ? data - 1 : data);
     }
 
-    inline constexpr const Type* cbegin() const {
+    inline constexpr const Type* p_cbegin() const {
         #ifdef VECLIB_ASSERT_NOEXCEPT
         assert(data);
         #else // VECLIB_ASSERT_NOEXCEPT
-        if (data == nullptr) throw std::runtime_error("Vector<Type, Grow>.cbegin(): Data pointer is nullptr");
+        if (data == nullptr) throw std::runtime_error("Vector<Type, Grow>.p_cbegin(): Data pointer is nullptr");
         #endif // VECLIB_ASSERT_NOEXCEPT
         return data;
     }
 
-    inline constexpr const Type* cend() const {
+    inline constexpr const Type* p_cend() const {
         #ifdef VECLIB_ASSERT_NOEXCEPT
         assert(data);
         #else // VECLIB_ASSERT_NOEXCEPT
-        if (data == nullptr) throw std::runtime_error("Vector<Type, Grow>.cend(): Data pointer is nullptr");
+        if (data == nullptr) throw std::runtime_error("Vector<Type, Grow>.p_cend(): Data pointer is nullptr");
         #endif // VECLIB_ASSERT_NOEXCEPT
         return data + count;
     }
 
-    inline constexpr const ReverseMemIterator<Type> crbegin() const {
+    inline constexpr const ReverseMemIterator<const Type> p_crbegin() const {
         #ifdef VECLIB_ASSERT_NOEXCEPT
         assert(data);
         #else // VECLIB_ASSERT_NOEXCEPT
-        if (data == nullptr) throw std::runtime_error("Vector<Type, Grow>.crbegin(): Data pointer is nullptr");
+        if (data == nullptr) throw std::runtime_error("Vector<Type, Grow>.p_crbegin(): Data pointer is nullptr");
         #endif // VECLIB_ASSERT_NOEXCEPT
-        return ReverseMemIterator<Type>(data + count - 1);
+        return ReverseMemIterator<const Type>(data + count - 1);
     }
 
-    inline constexpr const ReverseMemIterator<Type> crend() const {
+    inline constexpr const ReverseMemIterator<const Type> p_crend() const {
         #ifdef VECLIB_ASSERT_NOEXCEPT
         assert(data);
         #else // VECLIB_ASSERT_NOEXCEPT
-        if (data == nullptr) throw std::runtime_error("Vector<Type, Grow>.crend(): Data pointer is nullptr");
+        if (data == nullptr) throw std::runtime_error("Vector<Type, Grow>.p_crend(): Data pointer is nullptr");
         #endif // VECLIB_ASSERT_NOEXCEPT
-        return ReverseMemIterator<Type>(data - 1);
+        return ReverseMemIterator<const Type>(data - 1);
     }
+
+    #if 0
+
+    // Indexed iterator versions (reverse is not possible due to rend()/crend() not being able to go below index 0)
+
+    inline constexpr IdxForwIterator i_begin() {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr) throw std::runtime_error("Vector<Type, Grow>.i_begin(): Data pointer is nullptr");
+        #endif // VECLIB_ASSERT_NOEXCEPT
+        return IdxForwIterator(this, 0);
+    }
+    inline constexpr const ConstIdxForwIterator i_begin() const {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr) throw std::runtime_error("Vector<Type, Grow>.i_begin(): Data pointer is nullptr");
+        #endif // VECLIB_ASSERT_NOEXCEPT
+        return ConstIdxForwIterator(this, 0);
+    }
+
+    inline constexpr IdxForwIterator i_end() {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr) throw std::runtime_error("Vector<Type, Grow>.i_end(): Data pointer is nullptr");
+        #endif // VECLIB_ASSERT_NOEXCEPT
+        return IdxForwIterator(this, count);
+    }
+    inline constexpr const ConstIdxForwIterator i_end() const {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr) throw std::runtime_error("Vector<Type, Grow>.i_end(): Data pointer is nullptr");
+        #endif // VECLIB_ASSERT_NOEXCEPT
+        return ConstIdxForwIterator(this, count);
+    }
+
+    inline constexpr const ConstIdxForwIterator i_cbegin() const {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr) throw std::runtime_error("Vector<Type, Grow>.i_cbegin(): Data pointer is nullptr");
+        #endif // VECLIB_ASSERT_NOEXCEPT
+        return ConstIdxForwIterator(this, 0);
+    }
+
+    inline constexpr const ConstIdxForwIterator i_cend() const {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr) throw std::runtime_error("Vector<Type, Grow>.i_cend(): Data pointer is nullptr");
+        #endif // VECLIB_ASSERT_NOEXCEPT
+        return ConstIdxForwIterator(this, count);
+    }
+
+    #endif // 0
+
+    #ifndef VECLIB_USE_INDEXED_ITERATORS // Default pointer-based implementations
+
+    inline constexpr auto begin() { return p_begin(); }
+    inline constexpr const auto begin() const { return p_begin(); }
+
+    inline constexpr auto end() { return p_end(); }
+    inline constexpr const auto end() const { return p_end(); }
+
+    inline constexpr auto rbegin() { return p_rbegin(); }
+    inline constexpr const auto rbegin() const { return p_rbegin(); }
+
+    inline constexpr auto rend() { return p_rend(); }
+    inline constexpr const auto rend() const { return p_rend(); }
+
+    inline constexpr const auto cbegin() const { return p_cbegin(); }
+    inline constexpr const auto cend() const { return p_cend(); }
+
+    inline constexpr const auto crbegin() const { return p_crbegin(); }
+    inline constexpr const auto crend() const { return p_crend(); }
+
+    #else // VECLIB_USE_INDEXED_ITERATORS
+
+    #if 0
+
+    inline constexpr auto begin() { return i_begin(); }
+    inline constexpr const auto begin() const { return i_begin(); }
+
+    inline constexpr auto end() { return i_end(); }
+    inline constexpr const auto end() const { return i_end(); }
+
+    inline constexpr const auto cbegin() const { return i_cbegin(); }
+    inline constexpr const auto cend() const { return i_cbegin(); }
+
+    #endif // 0
+
+    #endif // VECLIB_USE_INDEXED_ITERATORS
+
+    #ifndef VECLIB_NO_OPERATOR_OVERLOADS // We create extra operator overloads unless it's not requested
 
     // Arithmetic overloads for integral types
 
@@ -1886,6 +2400,8 @@ public:
             const requires std::equality_comparable<Type> {
         return !(*this == other);
     }
+
+    #endif // VECLIB_NO_OPERATOR_OVERLOADS
 };
 
 } // namespace veclib
