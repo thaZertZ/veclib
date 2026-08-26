@@ -2,6 +2,7 @@
 #define VECLIB_HPP
 
 #include <cstdint>
+#include <cstring>
 #ifdef VECLIB_ASSERT_NOEXCEPT // Use asserts instead of throwing exceptions
 #include <cassert>
 #else // VECLIB_ASSERT_NOEXCEPT
@@ -2410,14 +2411,15 @@ private:
     // Sneaky formula to nudge the size into the next byte
     #define VECLIB_BITSET_BYTESIZE(Size) (Size + (CHAR_BIT - 1) / 8)
 
-    std::uint8_t data[VECLIB_BITSET_BYTESIZE] = {0}; // Zero-initialization
+    std::uint8_t data[VECLIB_BITSET_BYTESIZE(Size)] = {0}; // Zero-initialization
 
     inline constexpr bool get_at(std::size_t index) const noexcept {
-        return data[index / 8] & (1 << (index % CHAR_BIT));
+        return data[index / CHAR_BIT] & (1 << (index % CHAR_BIT));
     }
 
-    inline constexpr set_at(std::size_t index, bool value) noexcept {
-        
+    inline constexpr void set_at(std::size_t index, bool value) noexcept {
+        if (value) data[index / CHAR_BIT] |= 1 << (index % CHAR_BIT);
+        else data[index / CHAR_BIT] &= ~(1 << (index % CHAR_BIT));
     }
 
     template <std::size_t ProxySize>
@@ -2434,8 +2436,12 @@ private:
         BitsetProxy(Bitset<ProxySize>& b, std::size_t i) noexcept
             : bitset(b), index(i) {}
 
-        inline constexpr operator bool() {
-            return 
+        inline constexpr operator bool() const noexcept {
+            return bitset.get_at(index);
+        }
+        inline constexpr BitsetProxy<ProxySize>& operator=(bool value) noexcept {
+            bitset.set_at(index, value);
+            return *this;
         }
     };
 
@@ -2470,11 +2476,68 @@ public:
             data[i / CHAR_BIT] &= ~(1 << i % CHAR_BIT); // Set all others to 0
     }
 
+    Bitset(std::uint8_t x) noexcept requires (Size == 8) {
+        std::memcpy(data, &x, sizeof(x));
+    }
+    Bitset(std::uint16_t x) noexcept requires (Size == 16) {
+        std::memcpy(data, &x, sizeof(x));
+    }
+    Bitset(std::uint32_t x) noexcept requires (Size == 32) {
+        std::memcpy(data, &x, sizeof(x));
+    }
+    Bitset(std::uint64_t x) noexcept requires (Size == 64) {
+        std::memcpy(data, &x, sizeof(x));
+    }
+
     inline constexpr const std::uint8_t* get() const noexcept { return data; }
     inline constexpr std::size_t size() const noexcept { return Size; }
     inline constexpr std::size_t bytesize() const noexcept { return VECLIB_BITSET_BYTESIZE(Size); }
 
-    
+    inline constexpr BitsetProxy<Size> operator[](std::size_t index) noexcept {
+        return BitsetProxy<Size>(*this, index);
+    }
+    inline constexpr const BitsetProxy<Size> operator[](std::size_t index) const noexcept {
+        return BitsetProxy<Size>(*this, index);
+    }
+
+    inline constexpr BitsetProxy<Size> at(std::size_t index) noexcept {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(index < Size);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (index >= Size) throw std::out_of_range("Bitset<Size>.at(std::size_t): Index is out of bounds");
+        #endif // VECLIB_ASSERT_NOEXCEPT
+        return BitsetProxy<Size>(*this, index);
+    }
+    inline constexpr const BitsetProxy<Size> at(std::size_t index) const noexcept {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(index < Size);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (index >= Size) throw std::out_of_range("Bitset<Size>.at(std::size_t): Index is out of bounds");
+        #endif // VECLIB_ASSERT_NOEXCEPT
+        return BitsetProxy<Size>(*this, index);
+    }
+
+    inline constexpr std::size_t on() const noexcept {
+        std::size_t count = 0;
+        for (std::size_t i = 0; i < Size; ++i)
+            if (data[i / CHAR_BIT] & (1 << (i % CHAR_BIT)) != 0) ++count;
+        return count;
+    }
+    inline constexpr std::size_t off() const noexcept {
+        return Size - on();
+    }
+
+    inline constexpr bool any() const noexcept {
+        for (std::size_t i = 0; i < VECLIB_BITSET_BYTESIZE(Size); ++i)
+            if (data[i] != 0) return true;
+        return false;
+    }
+    inline constexpr bool none() const noexcept {
+        return !any();
+    }
+    inline constexpr operator bool() const noexcept {
+        return any();
+    }
 };
 
 #undef VECLIB_BITSET_BYTESIZE
