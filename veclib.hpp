@@ -2445,6 +2445,75 @@ private:
         }
     };
 
+    template <std::size_t ItrSize>
+    class BitsetIterator {
+    friend Bitset;
+    private:
+        Bitset<Size>& bitset;
+        std::size_t index;
+
+    public:
+        BitsetIterator() = delete;
+        ~BitsetIterator() noexcept = delete;
+
+        Bitsetiterator(Bitset<ItrSize>& b, std::size_t i) noexcept
+            : bitset(b), index(i) {}
+
+        inline constexpr BitsetProxy<ItrSize> operator*() noexcept {
+            return bitset[index];
+        }
+        inline constexpr const BitsetProxy<ItrSize> operator*() const noexcept {
+            return bitset[index];
+        }
+
+        inline constexpr BitsetIterator<ItrSize>& operator++() noexcept {
+            ++index;
+            return *this;
+        }
+        inline constexpr BitsetIterator<ItrSize> operator++(int) noexcept {
+            BitsetIterator<ItrSize> self = *this;
+            ++*this;
+            return self;
+        }
+        inline constexpr BitsetIterator<ItrSize>& operator--() noexcept {
+            --index;
+            return *this;
+        }
+        inline constexpr BitsetIterator<ItrSize> operator--(int) noexcept {
+            BitsetIterator<ItrSize> self = *this;
+            --*this;
+            return self;
+        }
+
+        inline constexpr BitsetIterator<ItrSize>& operator+=(std::size_t x) noexcept {
+            index += x;
+            return *this;
+        }
+        inline constexpr BitsetIterator<ItrSize>& operator-=(std::size_t x) noexcept {
+            index -= x;
+            return *this;
+        }
+
+        inline constexpr BitsetIterator<ItrSize> operator+(std::size_t x) const noexcept {
+            BitsetIterator<ItrSize> self = *this;
+            self += x;
+            return self;
+        }
+        inline constexpr BitsetIterator<ItrSize> operator-(std::size_t x) const noexcept {
+            BitsetIterator<ItrSize> self = *this;
+            self -= x;
+            return self;
+        }
+
+        inline constexpr bool operator==(const BitsetIterator<ItrSize>& other) const noexcept {
+            return &bitset == &other.bitset && index == other.index;
+        }
+        inline constexpr bool operator!=(const BitsetIterator<ItrSize>& other) const noexcept {
+            return !(*this == other);
+        }
+        inline consteval operator bool() const noexcept { return true; }
+    };
+
 public:
     Bitset() noexcept = default;
     ~Bitset() noexcept = default;
@@ -2537,6 +2606,47 @@ public:
     }
     inline constexpr operator bool() const noexcept {
         return any();
+    }
+
+    inline constexpr Bitset<Size>& operator&=(const Bitset<Size>& other) noexcept {
+        for (std::size_t i = 0; i < VECLIB_BITSET_BYTESIZE(Size); ++i)
+            data[i] &= other.data[i];
+        return *this;
+    }
+    inline constexpr Bitset<Size>& operator|=(const Bitset<Size>& other) noexcept {
+        for (std::size_t i = 0; i < VECLIB_BITSET_BYTESIZE(Size); ++i)
+            data[i] |= other.data[i];
+        return *this;
+    }
+    inline constexpr Bitset<Size>& operator^=(const Bitset<Size>& other) noexcept {
+        for (std::size_t i = 0; i < VECLIB_BITSET_BYTESIZE(Size); ++i)
+            data[i] ^= other.data[i];
+        return *this;
+    }
+
+    inline constexpr Bitset<Size> operator&(const Bitset<Size>& other) const noexcept {
+        Bitset<Size> self = *this;
+        self &= other;
+        return self;
+    }
+    inline constexpr Bitset<Size> operator|(const Bitset<Size>& other) const noexcept {
+        Bitset<Size> self = *this;
+        self |= other;
+        return self;
+    }
+    inline constexpr Bitset<Size> operator^(const Bitset<Size>& other) const noexcept {
+        Bitset<Size> self = *this;
+        self ^= other;
+        return self;
+    }
+
+    inline constexpr bool operator==(const Bitset<Size>& other) const noexcept {
+        for (std::size_t i = 0; i < VECLIB_BITSET_BYTESIZE(Size); ++i)
+            if (data[i] != other.data[i]) return false;
+        return true;
+    }
+    inline constexpr bool operator!=(const Bitset<Size>& other) const noexcept {
+        return !(*this == other);
     }
 };
 
