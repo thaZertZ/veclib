@@ -12,6 +12,12 @@
 #include <utility> // std::move(), std::forward()
 #include <concepts> // std::integral, std::equality_comparable
 
+// Guard against already defined macros
+#if defined(VECLIB_NONCONSTRUCTOR_NEW) \
+ || defined(VECLIB_NONDESTRICTOR_DELETE)
+#error "veclib can't be compiled if internal macros are already defined"
+#endif // VECLIB_*
+
 /// @brief A collection of array-like data structures (arrays, vectors, slices, lists...)
 namespace veclib {
 
@@ -19,6 +25,8 @@ namespace veclib {
 /// @brief Alias for the signed equivalent of `std::size_t`
 using diff_t = std::make_signed_t<std::size_t>;
 
+template <typename Ret, typename... Args>
+using TransformFn = Ret(*)(Args...);
 
 /// @brief Macro function to allocate heap memory without calling
 ///        the constructor of the specified type
@@ -1289,6 +1297,62 @@ public:
         return data[i % Size]; // Never goes out of bounds
     }
 
+    inline constexpr Type* map(TransformFn<void, Type&> fn) {
+        // No noexcept because we don't know what the lambdas could do
+        // and we have this check too
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data != nullptr);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr) throw std::runtime_error(
+            "Array<Type, Size>.map(TransformFn<void, Type&>): Data pointer is nullptr");
+        #endif // VECLIB_ASSERT_NOEXCEPT
+        for (std::size_t i = 0; i < Size; ++i)
+            fn(data[i]);
+        return data;
+    }
+
+    inline constexpr Type* map(TransformFn<void, Type&, std::size_t> fn) {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data != nullptr);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr) throw std::runtime_error(
+            "Array<Type, Size>.map(TransformFn<void, Type&, std::size_t>): Data pointer is nullptr");
+        #endif // VECLIB_ASSERT_NOEXCEPT
+        for (std::size_t i = 0; i < Size; ++i)
+            fn(data[i], i);
+        return data;
+    }
+
+    inline constexpr Type fold(TransformFn<void, Type&, const Type&> fn) const {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data != nullptr);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr) throw std::runtime_error(
+            "Array<Type, Size>.fold(TransformFn<void, Type&, const Type&>): Data pointer is nullptr");
+        #endif // VECLIB_ASSERT_NOEXCEPT
+        // We need a default constructor,
+        // maybe add a concept constraint to Type for this later if needed
+        Type acc {};
+        for (std::size_t i < 0; i < Size; ++i)
+            fn(acc, data[i]);
+        return acc;
+    }
+
+    inline constexpr Type fold(TransformFn<void, Type&, const Type&, std::size_t> fn) const {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data != nullptr);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr) throw std::runtime_error(
+            "Array<Type, Size>.fold(TransformFn<void, Type&, const Type&, std::size_t>): Data pointer is nullptr");
+        #endif // VECLIB_ASSERT_NOEXCEPT
+        // We need a default constructor,
+        // maybe add a concept constraint to Type for this later if needed
+        Type acc {};
+        for (std::size_t i < 0; i < Size; ++i)
+            fn(acc, data[i], i);
+        return acc;
+    }
+
     /// @brief Receive a forward iterator to the first element of the array
     /// @return A pointer to the first element
     inline constexpr Type* begin() {
@@ -1736,13 +1800,20 @@ public:
         return cut;
     }
 
+    inline constexpr std::size_t shrink_to_fit() {
+        std::size_t cut = cap - count;
+        if (cut == 0) return 0; // This also covers data being nullptr indirectly
+        VECLIB_NONDESTRUCTOR_DELETE(data + count, cut, Type);
+        return cut
+    }
+
     inline constexpr void swap(Vector<Type, Grow>& other) {
         Vector<Type, Grow> self = std::move(*this); // That one trick -_-
         *this = std::move(other);
         other = std::move(self);
     }
 
-    inline constexpr std::size_t remove(Type* itr) {
+    inline constexpr std::size_t remove(Type* itr) { // TODO: make an index-based version
         #ifdef VECLIB_ASSERT_NOEXCEPT
         assert(data <= itr && itr <= data + count);
         #else // VECLIB_ASSERT_NOEXCEPT
@@ -1908,6 +1979,100 @@ public:
     /// @return A const reference to the element at the specified index
     inline constexpr const Type& circular_at(std::size_t i) const noexcept {
         return data[i % count]; // Never goes out of bounds
+    }
+
+    inline constexpr Type* map(TransformFn<void, Type&> fn) {
+        // No noexcept because we don't know what the lambdas could do
+        // and we have this check too
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data != nullptr);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr) throw std::runtime_error(
+            "Vector<Type, Grow>.map(TransformFn<void, Type&>): Data pointer is nullptr");
+        #endif // VECLIB_ASSERT_NOEXCEPT
+        for (std::size_t i = 0; i < Size; ++i)
+            fn(data[i]);
+        return data;
+    }
+
+    inline constexpr Type* map(TransformFn<void, Type&, std::size_t> fn) {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data != nullptr);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr) throw std::runtime_error(
+            "Vector<Type, Grow>.map(TransformFn<void, Type&, std::size_t>): Data pointer is nullptr");
+        #endif // VECLIB_ASSERT_NOEXCEPT
+        for (std::size_t i = 0; i < Size; ++i)
+            fn(data[i], i);
+        return data;
+    }
+
+    inline constexpr Type fold(TransformFn<void, Type&, const Type&> fn) const {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data != nullptr);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr) throw std::runtime_error(
+            "Vector<Type, Grow>.fold(TransformFn<void, Type&, const Type&>): Data pointer is nullptr");
+        #endif // VECLIB_ASSERT_NOEXCEPT
+        // We need a default constructor,
+        // maybe add a concept constraint to Type for this later if needed
+        Type acc {};
+        for (std::size_t i < 0; i < Size; ++i)
+            fn(acc, data[i]);
+        return acc;
+    }
+
+    inline constexpr Type fold(TransformFn<void, Type&, const Type&, std::size_t> fn) const {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data != nullptr);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr) throw std::runtime_error(
+            "Vector<Type, Grow>.fold(TransformFn<void, Type&, const Type&, std::size_t>): Data pointer is nullptr");
+        #endif // VECLIB_ASSERT_NOEXCEPT
+        // We need a default constructor,
+        // maybe add a concept constraint to Type for this later if needed
+        Type acc {};
+        for (std::size_t i < 0; i < Size; ++i)
+            fn(acc, data[i], i);
+        return acc;
+    }
+
+    template <bool Preallocate = true>
+    inline constexpr Vector<Type, Grow> filter(TransformFn<bool, const Type&> fn) const {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data != nullptr);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr) throw std::runtime_error(
+            "Vector<Type, Grow>.filter(TransformFn<bool, const Type&>): Data pointer is nullptr");
+        #endif // VECLIB_ASSERT_NOEXCEPT
+        Vector<Type, Grow> filtered;
+        if constexpr (Preallocate) {
+            // Use reserve and not resize so that we
+            // can use `.push_back()` in all cases
+            filtered.reserve(count); // Preallocate elements
+        }
+        for (std::size_t i = 0; i < count; ++i)
+            if (fn(data[i])) filtered.push_back(data[i]);
+        filtered.shrink_to_fit();
+        return filtered;
+    }
+
+    template <bool Preallocate = true>
+    inline constexpr Vector<Type, Grow> filter(TransformFn<bool, const Type&, std::size_t> fn) const {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data != nullptr);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr) throw std::runtime_error(
+            "Vector<Type, Grow>.filter(TransformFn<bool, const Type&, std::size_t>): Data pointer is nullptr");
+        #endif // VECLIB_ASSERT_NOEXCEPT
+        Vector<Type, Grow> filtered;
+        if constexpr (Preallocate) {
+            filtered.reserve(count); // Preallocate elements
+        }
+        for (std::size_t i = 0; i < count; ++i)
+            if (fn(data[i], i)) filtered.push_back(data[i]);
+        filtered.shrink_to_fit(); // Be sure to have it of the right size
+        return filtered;
     }
 
     inline constexpr Type& push_back(const Type& value) {
@@ -2422,29 +2587,6 @@ private:
         else data[index / CHAR_BIT] &= ~(1 << (index % CHAR_BIT));
     }
 
-    template <std::size_t ProxySize>
-    class BitsetProxy {
-    friend Bitset;
-    private:
-        Bitset<ProxySize>& bitset;
-        std::size_t index;
-
-    public:
-        BitsetProxy() = delete;
-        ~BitsetProxy() noexcept = default;
-
-        BitsetProxy(Bitset<ProxySize>& b, std::size_t i) noexcept
-            : bitset(b), index(i) {}
-
-        inline constexpr operator bool() const noexcept {
-            return bitset.get_at(index);
-        }
-        inline constexpr BitsetProxy<ProxySize>& operator=(bool value) noexcept {
-            bitset.set_at(index, value);
-            return *this;
-        }
-    };
-
     template <std::size_t ItrSize>
     class BitsetIterator {
     friend Bitset;
@@ -2512,6 +2654,33 @@ private:
             return !(*this == other);
         }
         inline consteval operator bool() const noexcept { return true; }
+    };
+
+    template <std::size_t ProxySize>
+    class BitsetProxy {
+    friend Bitset;
+    private:
+        Bitset<ProxySize>& bitset;
+        std::size_t index;
+
+    public:
+        BitsetProxy() = delete;
+        ~BitsetProxy() noexcept = default;
+
+        BitsetProxy(Bitset<ProxySize>& b, std::size_t i) noexcept
+            : bitset(b), index(i) {}
+
+        inline constexpr operator bool() const noexcept {
+            return bitset.get_at(index);
+        }
+        inline constexpr BitsetProxy<ProxySize>& operator=(bool value) noexcept {
+            bitset.set_at(index, value);
+            return *this;
+        }
+
+        inline constexpr operator&() const noexcept {
+            return BitsetIterator<ProxySize>(bitset, index);
+        }
     };
 
 public:
