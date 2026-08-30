@@ -91,5 +91,10 @@ int main() {
         // `acc` is the accumulated value
         acc += x;
     });
+
+    // For numeric types only it supports arithmetic operations
+    foo += bar;
+    foo /= 2;
+    veclib::Array<int, 5> baz = foo * 3;
 }
 ```
