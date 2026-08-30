@@ -28,6 +28,23 @@ using diff_t = std::make_signed_t<std::size_t>;
 template <typename Ret, typename... Args>
 using TransformFn = Ret(*)(Args...);
 
+tenplate <typename Type>
+class Explicit {
+private:
+    Type data {};
+
+public:
+    Explicit() = delete;
+    ~Explicit() = default;
+
+    explicit Explicit(const Type& other)
+        : data(other) {}
+    explicit Explicit(Type&& other) noexcept
+        : data(std::move(other)) {}
+
+    inline constexpr operator Type() const noexcept { return data; }
+};
+
 /// @brief Macro function to allocate heap memory without calling
 ///        the constructor of the specified type
 /// @param count The number of items of the type to allocate
@@ -1297,6 +1314,18 @@ public:
         return data[i % Size]; // Never goes out of bounds
     }
 
+    inline constexpr bool contains(const Type& x) const requires std::equality_comparable<Type> {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data != nullptr);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr) throw std::runtime_error(
+            "Array<Type, Size>.contains(const Type&): Data pointer is nullptr");
+        #endif // VECLIB_ASSERT_NOEXCEPT
+        for (std::size_t i < 0; i < Size; ++i)
+            if (data[i] == x) return true;
+        return false;
+    }
+
     inline constexpr Type* map(TransformFn<void, Type&> fn) {
         // No noexcept because we don't know what the lambdas could do
         // and we have this check too
@@ -1485,23 +1514,23 @@ public:
 
     // Arithmetic operations for integral types
 
-    inline constexpr Array<Type, Size>& operator++() noexcept requires std::integral<Type> {
+    inline constexpr Array<Type, Size>& operator++() noexcept requires std::is_arithmetic_v<Type> {
         for (std::size_t i = 0; i < Size; ++i)
             ++data[i];
         return *this;
     }
-    inline constexpr Array<Type, Size>& operator++(int) noexcept requires std::integral<Type> {
+    inline constexpr Array<Type, Size>& operator++(int) noexcept requires std::is_arithmetic_v<Type> {
         Array<Type, Size> self = *this;
         for (std::size_t i = 0; i < Size; ++i)
             ++data[i];
         return self;
     }
-    inline constexpr Array<Type, Size>& operator--() noexcept requires std::integral<Type> {
+    inline constexpr Array<Type, Size>& operator--() noexcept requires std::is_arithmetic_v<Type> {
         for (std::size_t i = 0; i < Size; ++i)
             --data[i];
         return *this;
     }
-    inline constexpr Array<Type, Size>& operator--(int) noexcept requires std::integral<Type> {
+    inline constexpr Array<Type, Size>& operator--(int) noexcept requires std::is_arithmetic_v<Type> {
         Array<Type, Size> self = *this;
         for (std::size_t i = 0; i < Size; ++i)
             --data[i];
@@ -1509,66 +1538,66 @@ public:
     }
 
     inline constexpr Array<Type, Size>& operator+=(const Array<Type, Size>& other)
-            noexcept requires std::integral<Type> {
+            noexcept requires std::is_arithmetic_v<Type> {
         for (std::size_t i = 0; i < Size; ++i)
             data[i] += other.data[i];
         return *this;
     }
     inline constexpr Array<Type, Size>& operator-=(const Array<Type, Size>& other)
-            noexcept requires std::integral<Type> {
+            noexcept requires std::is_arithmetic_v<Type> {
         for (std::size_t i = 0; i < Size; ++i)
             data[i] -= other.data[i];
         return *this;
     }
     inline constexpr Array<Type, Size>& operator*=(const Array<Type, Size>& other)
-            noexcept requires std::integral<Type> {
+            noexcept requires std::is_arithmetic_v<Type> {
         for (std::size_t i = 0; i < Size; ++i)
             data[i] *= other.data[i];
         return *this;
     }
     inline constexpr Array<Type, Size>& operator/=(const Array<Type, Size>& other)
-            noexcept requires std::integral<Type> {
+            noexcept requires std::is_arithmetic_v<Type> {
         for (std::size_t i = 0; i < Size; ++i)
             data[i] /= other.data[i];
         return *this;
     }
     inline constexpr Array<Type, Size>& operator%=(const Array<Type, Size>& other)
-            noexcept requires std::integral<Type> {
+            noexcept requires std::is_arithmetic_v<Type> {
         for (std::size_t i = 0; i < Size; ++i)
             data[i] %= other.data[i];
         return *this;
     }
 
     inline constexpr Array<Type, Size> operator+(const Array<Type, Size>& other)
-            const noexcept requires std::integral<Type> {
+            const noexcept requires std::is_arithmetic_v<Type> {
         Array<Type, Size> output = *this;
         for (std::size_t i = 0; i < Size; ++i)
             output[i] += other.data[i];
         return output;
     }
     inline constexpr Array<Type, Size> operator-(const Array<Type, Size>& other)
-            const noexcept requires std::integral<Type> {
+            const noexcept requires std::is_arithmetic_v<Type> {
         Array<Type, Size> output = *this;
         for (std::size_t i = 0; i < Size; ++i)
             output[i] -= other.data[i];
         return output;
     }
     inline constexpr Array<Type, Size> operator*(const Array<Type, Size>& other)
-            const noexcept requires std::integral<Type> {
+            const noexcept requires std::is_arithmetic_v<Type> {
         Array<Type, Size> output = *this;
         for (std::size_t i = 0; i < Size; ++i)
             output[i] *= other.data[i];
         return output;
     }
     inline constexpr Array<Type, Size> operator/(const Array<Type, Size>& other)
-            const noexcept requires std::integral<Type> {
+            const noexcept requires std::is_arithmetic_v<Type> {
         Array<Type, Size> output = *this;
         for (std::size_t i = 0; i < Size; ++i)
             output[i] /= other.data[i];
         return output;
     }
     inline constexpr Array<Type, Size> operator%(const Array<Type, Size>& other)
-            const noexcept requires std::integral<Type> {
+            const noexcept requires std::is_arithmetic_v<Type> {
         Array<Type, Size> output = *this;
         for (std::size_t i = 0; i < Size; ++i)
             output[i] %= other.data[i];
@@ -1979,6 +2008,18 @@ public:
     /// @return A const reference to the element at the specified index
     inline constexpr const Type& circular_at(std::size_t i) const noexcept {
         return data[i % count]; // Never goes out of bounds
+    }
+
+    inline constexpr bool contains(const Type& x) const requires std::equality_comparable<Type> {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data != nullptr);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr) throw std::runtime_error(
+            "Vector<Type, Grow>.contains(const Type&): Data pointer is nullptr");
+        #endif // VECLIB_ASSERT_NOEXCEPT
+        for (std::size_t i < 0; i < count; ++i)
+            if (data[i] == x) return true;
+        return false;
     }
 
     inline constexpr Type* map(TransformFn<void, Type&> fn) {
@@ -2400,23 +2441,23 @@ public:
 
     // Arithmetic overloads for integral types
 
-    inline constexpr Vector<Type, Grow>& operator++() noexcept requires std::integral<Type> {
+    inline constexpr Vector<Type, Grow>& operator++() noexcept requires std::is_arithmetic_v<Type> {
         for (std::size_t i = 0; i < count; ++i)
             ++data[i];
         return *this;
     }
-    inline constexpr Vector<Type, Grow> operator++(int) noexcept requires std::integral<Type> {
+    inline constexpr Vector<Type, Grow> operator++(int) noexcept requires std::is_arithmetic_v<Type> {
         Vector<Type, Grow> self = *this;
         for (std::size_t i = 0; i < count; ++i)
             ++data[i];
         return self;
     }
-    inline constexpr Vector<Type, Grow>& operator--() noexcept requires std::integral<Type> {
+    inline constexpr Vector<Type, Grow>& operator--() noexcept requires std::is_arithmetic_v<Type> {
         for (std::size_t i = 0; i < count; ++i)
             --data[i];
         return *this;
     }
-    inline constexpr Vector<Type, Grow> operator--(int) noexcept requires std::integral<Type> {
+    inline constexpr Vector<Type, Grow> operator--(int) noexcept requires std::is_arithmetic_v<Type> {
         Vector<Type, Grow> self = *this;
         for (std::size_t i = 0; i < count; ++i)
             --data[i];
@@ -2424,7 +2465,7 @@ public:
     }
 
     inline constexpr Vector<Type, Grow>& operator+=(const Vector<Type, Grow>& other)
-            noexcept requires std::integral<Type> {
+            noexcept requires std::is_arithmetic_v<Type> {
         #ifdef VECLIB_ASSERT_NOEXCEPT
         assert(count == other.count);
         #else // VECLIB_ASSERT_NOEXCEPT
@@ -2436,7 +2477,7 @@ public:
         return *this;
     }
     inline constexpr Vector<Type, Grow>& operator-=(const Vector<Type, Grow>& other)
-            noexcept requires std::integral<Type> {
+            noexcept requires std::is_arithmetic_v<Type> {
         #ifdef VECLIB_ASSERT_NOEXCEPT
         assert(count == other.count);
         #else // VECLIB_ASSERT_NOEXCEPT
@@ -2448,7 +2489,7 @@ public:
         return *this;
     }
     inline constexpr Vector<Type, Grow>& operator*=(const Vector<Type, Grow>& other)
-            noexcept requires std::integral<Type> {
+            noexcept requires std::is_arithmetic_v<Type> {
         #ifdef VECLIB_ASSERT_NOEXCEPT
         assert(count == other.count);
         #else // VECLIB_ASSERT_NOEXCEPT
@@ -2460,7 +2501,7 @@ public:
         return *this;
     }
     inline constexpr Vector<Type, Grow>& operator/=(const Vector<Type, Grow>& other)
-            noexcept requires std::integral<Type> {
+            noexcept requires std::is_arithmetic_v<Type> {
         #ifdef VECLIB_ASSERT_NOEXCEPT
         assert(count == other.count);
         #else // VECLIB_ASSERT_NOEXCEPT
@@ -2472,7 +2513,7 @@ public:
         return *this;
     }
     inline constexpr Vector<Type, Grow>& operator%=(const Vector<Type, Grow>& other)
-            noexcept requires std::integral<Type> {
+            noexcept requires std::is_arithmetic_v<Type> {
         #ifdef VECLIB_ASSERT_NOEXCEPT
         assert(count == other.count);
         #else // VECLIB_ASSERT_NOEXCEPT
@@ -2485,7 +2526,7 @@ public:
     }
 
     inline constexpr Vector<Type, Grow> operator+(const Vector<Type, Grow>& other)
-            const requires std::integral<Type> {
+            const requires std::is_arithmetic_v<Type> {
         #ifdef VECLIB_ASSERT_NOEXCEPT
         assert(count == other.count);
         #else // VECLIB_ASSERT_NOEXCEPT
@@ -2498,7 +2539,7 @@ public:
         return output;
     }
     inline constexpr Vector<Type, Grow> operator-(const Vector<Type, Grow>& other)
-            const requires std::integral<Type> {
+            const requires std::is_arithmetic_v<Type> {
         #ifdef VECLIB_ASSERT_NOEXCEPT
         assert(count == other.count);
         #else // VECLIB_ASSERT_NOEXCEPT
@@ -2511,7 +2552,7 @@ public:
         return output;
     }
     inline constexpr Vector<Type, Grow> operator*(const Vector<Type, Grow>& other)
-            const requires std::integral<Type> {
+            const requires std::is_arithmetic_v<Type> {
         #ifdef VECLIB_ASSERT_NOEXCEPT
         assert(count == other.count);
         #else // VECLIB_ASSERT_NOEXCEPT
@@ -2524,7 +2565,7 @@ public:
         return output;
     }
     inline constexpr Vector<Type, Grow> operator/(const Vector<Type, Grow>& other)
-            const requires std::integral<Type> {
+            const requires std::is_arithmetic_v<Type> {
         #ifdef VECLIB_ASSERT_NOEXCEPT
         assert(count == other.count);
         #else // VECLIB_ASSERT_NOEXCEPT
@@ -2537,7 +2578,7 @@ public:
         return output;
     }
     inline constexpr Vector<Type, Grow> operator%(const Vector<Type, Grow>& other)
-            const requires std::integral<Type> {
+            const requires std::is_arithmetic_v<Type> {
         #ifdef VECLIB_ASSERT_NOEXCEPT
         assert(count == other.count);
         #else // VECLIB_ASSERT_NOEXCEPT
@@ -2570,12 +2611,118 @@ public:
     #endif // VECLIB_NO_OPERATOR_OVERLOADS
 };
 
+
+// Sneaky formula to nudge the size into the next byte
+#define VECLIB_BITSET_BYTESIZE(Size) (Size + (CHAR_BIT - 1) / 8)
+
+template <std::size_t Size>
+class Bitset;
+
+template <std::size_t ProxySize>
+class BitsetProxy;
+
+template <std::size_t ItrSize>
+class BitsetIterator {
+friend Bitset;
+private:
+    Bitset<Size>& bitset;
+    std::size_t index;
+
+public:
+    BitsetIterator() = delete;
+    ~BitsetIterator() noexcept = delete;
+
+    Bitsetiterator(Bitset<ItrSize>& b, std::size_t i) noexcept
+        : bitset(b), index(i) {}
+
+    inline constexpr BitsetProxy<ItrSize> operator*() noexcept {
+        return bitset[index];
+    }
+    inline constexpr const BitsetProxy<ItrSize> operator*() const noexcept {
+        return bitset[index];
+    }
+
+    inline constexpr BitsetIterator<ItrSize>& operator++() noexcept {
+        ++index;
+        return *this;
+    }
+    inline constexpr BitsetIterator<ItrSize> operator++(int) noexcept {
+        BitsetIterator<ItrSize> self = *this;
+        ++*this;
+        return self;
+    }
+    inline constexpr BitsetIterator<ItrSize>& operator--() noexcept {
+        --index;
+        return *this;
+    }
+    inline constexpr BitsetIterator<ItrSize> operator--(int) noexcept {
+        BitsetIterator<ItrSize> self = *this;
+        --*this;
+        return self;
+    }
+
+    inline constexpr BitsetIterator<ItrSize>& operator+=(std::size_t x) noexcept {
+        index += x;
+        return *this;
+    }
+    inline constexpr BitsetIterator<ItrSize>& operator-=(std::size_t x) noexcept {
+        index -= x;
+        return *this;
+    }
+
+    inline constexpr BitsetIterator<ItrSize> operator+(std::size_t x) const noexcept {
+        BitsetIterator<ItrSize> self = *this;
+        self += x;
+        return self;
+    }
+    inline constexpr BitsetIterator<ItrSize> operator-(std::size_t x) const noexcept {
+        BitsetIterator<ItrSize> self = *this;
+        self -= x;
+        return self;
+    }
+
+    inline constexpr bool operator==(const BitsetIterator<ItrSize>& other) const noexcept {
+        return &bitset == &other.bitset && index == other.index;
+    }
+    inline constexpr bool operator!=(const BitsetIterator<ItrSize>& other) const noexcept {
+        return !(*this == other);
+    }
+    inline consteval operator bool() const noexcept { return true; }
+};
+
+template <std::size_t BitsetSize>
+using BitPtr = BitsetIterator<BitsetSize>;
+
+template <std::size_t ProxySize>
+class BitsetProxy {
+friend Bitset;
+private:
+    Bitset<ProxySize>& bitset;
+    std::size_t index;
+
+ public:
+    BitsetProxy() = delete;
+    ~BitsetProxy() noexcept = default;
+
+    BitsetProxy(Bitset<ProxySize>& b, std::size_t i) noexcept
+        : bitset(b), index(i) {}
+
+    inline constexpr operator bool() const noexcept {
+        return bitset.get_at(index);
+    }
+    inline constexpr BitsetProxy<ProxySize>& operator=(bool value) noexcept {
+        bitset.set_at(index, value);
+        return *this;
+    }
+
+    inline constexpr BitPtr<ProxySize> operator&() const noexcept {
+        return BitPtr<ProxySize>(bitset, index);
+    }
+};
+
 template <std::size_t Size>
 class Bitset {
 private:
-    // Sneaky formula to nudge the size into the next byte
-    #define VECLIB_BITSET_BYTESIZE(Size) (Size + (CHAR_BIT - 1) / 8)
-
     std::uint8_t data[VECLIB_BITSET_BYTESIZE(Size)] = {0}; // Zero-initialization
 
     inline constexpr bool get_at(std::size_t index) const noexcept {
@@ -2586,102 +2733,6 @@ private:
         if (value) data[index / CHAR_BIT] |= 1 << (index % CHAR_BIT);
         else data[index / CHAR_BIT] &= ~(1 << (index % CHAR_BIT));
     }
-
-    template <std::size_t ItrSize>
-    class BitsetIterator {
-    friend Bitset;
-    private:
-        Bitset<Size>& bitset;
-        std::size_t index;
-
-    public:
-        BitsetIterator() = delete;
-        ~BitsetIterator() noexcept = delete;
-
-        Bitsetiterator(Bitset<ItrSize>& b, std::size_t i) noexcept
-            : bitset(b), index(i) {}
-
-        inline constexpr BitsetProxy<ItrSize> operator*() noexcept {
-            return bitset[index];
-        }
-        inline constexpr const BitsetProxy<ItrSize> operator*() const noexcept {
-            return bitset[index];
-        }
-
-        inline constexpr BitsetIterator<ItrSize>& operator++() noexcept {
-            ++index;
-            return *this;
-        }
-        inline constexpr BitsetIterator<ItrSize> operator++(int) noexcept {
-            BitsetIterator<ItrSize> self = *this;
-            ++*this;
-            return self;
-        }
-        inline constexpr BitsetIterator<ItrSize>& operator--() noexcept {
-            --index;
-            return *this;
-        }
-        inline constexpr BitsetIterator<ItrSize> operator--(int) noexcept {
-            BitsetIterator<ItrSize> self = *this;
-            --*this;
-            return self;
-        }
-
-        inline constexpr BitsetIterator<ItrSize>& operator+=(std::size_t x) noexcept {
-            index += x;
-            return *this;
-        }
-        inline constexpr BitsetIterator<ItrSize>& operator-=(std::size_t x) noexcept {
-            index -= x;
-            return *this;
-        }
-
-        inline constexpr BitsetIterator<ItrSize> operator+(std::size_t x) const noexcept {
-            BitsetIterator<ItrSize> self = *this;
-            self += x;
-            return self;
-        }
-        inline constexpr BitsetIterator<ItrSize> operator-(std::size_t x) const noexcept {
-            BitsetIterator<ItrSize> self = *this;
-            self -= x;
-            return self;
-        }
-
-        inline constexpr bool operator==(const BitsetIterator<ItrSize>& other) const noexcept {
-            return &bitset == &other.bitset && index == other.index;
-        }
-        inline constexpr bool operator!=(const BitsetIterator<ItrSize>& other) const noexcept {
-            return !(*this == other);
-        }
-        inline consteval operator bool() const noexcept { return true; }
-    };
-
-    template <std::size_t ProxySize>
-    class BitsetProxy {
-    friend Bitset;
-    private:
-        Bitset<ProxySize>& bitset;
-        std::size_t index;
-
-    public:
-        BitsetProxy() = delete;
-        ~BitsetProxy() noexcept = default;
-
-        BitsetProxy(Bitset<ProxySize>& b, std::size_t i) noexcept
-            : bitset(b), index(i) {}
-
-        inline constexpr operator bool() const noexcept {
-            return bitset.get_at(index);
-        }
-        inline constexpr BitsetProxy<ProxySize>& operator=(bool value) noexcept {
-            bitset.set_at(index, value);
-            return *this;
-        }
-
-        inline constexpr operator&() const noexcept {
-            return BitsetIterator<ProxySize>(bitset, index);
-        }
-    };
 
 public:
     Bitset() noexcept = default;
