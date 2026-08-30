@@ -14,7 +14,7 @@
 
 // Guard against already defined macros
 #if defined(VECLIB_NONCONSTRUCTOR_NEW) \
- || defined(VECLIB_NONDESTRICTOR_DELETE)
+ || defined(VECLIB_NONDESTRUCTOR_DELETE)
 #error "veclib can't be compiled if internal macros are already defined"
 #endif // VECLIB_*
 
@@ -1543,10 +1543,22 @@ public:
             data[i] += other.data[i];
         return *this;
     }
+    inline constexpr Array<Type, Size>& operator+=(const Type x)
+            noexcept requires std::is_arithmetic_v<Type> {
+        for (std::size_t i = 0; i < Size; ++i)
+            data[i] += x;
+        return *this;
+    }
     inline constexpr Array<Type, Size>& operator-=(const Array<Type, Size>& other)
             noexcept requires std::is_arithmetic_v<Type> {
         for (std::size_t i = 0; i < Size; ++i)
             data[i] -= other.data[i];
+        return *this;
+    }
+    inline constexpr Array<Type, Size>& operator-=(const Type x)
+            noexcept requires std::is_arithmetic_v<Type> {
+        for (std::size_t i = 0; i < Size; ++i)
+            data[i] -= x;
         return *this;
     }
     inline constexpr Array<Type, Size>& operator*=(const Array<Type, Size>& other)
@@ -1555,16 +1567,34 @@ public:
             data[i] *= other.data[i];
         return *this;
     }
+    inline constexpr Array<Type, Size>& operator*=(const Type x)
+            noexcept requires std::is_arithmetic_v<Type> {
+        for (std::size_t i = 0; i < Size; ++i)
+            data[i] *= x;
+        return *this;
+    }
     inline constexpr Array<Type, Size>& operator/=(const Array<Type, Size>& other)
             noexcept requires std::is_arithmetic_v<Type> {
         for (std::size_t i = 0; i < Size; ++i)
             data[i] /= other.data[i];
         return *this;
     }
+    inline constexpr Array<Type, Size>& operator/=(const Type x)
+            noexcept requires std::is_arithmetic_v<Type> {
+        for (std::size_t i = 0; i < Size; ++i)
+            data[i] /= x;
+        return *this;
+    }
     inline constexpr Array<Type, Size>& operator%=(const Array<Type, Size>& other)
             noexcept requires std::is_arithmetic_v<Type> {
         for (std::size_t i = 0; i < Size; ++i)
             data[i] %= other.data[i];
+        return *this;
+    }
+    inline constexpr Array<Type, Size>& operator%=(const Type x)
+            noexcept requires std::is_arithmetic_v<Type> {
+        for (std::size_t i = 0; i < Size; ++i)
+            data[i] %= x;
         return *this;
     }
 
@@ -1575,11 +1605,25 @@ public:
             output[i] += other.data[i];
         return output;
     }
+    inline constexpr Array<Type, Size> operator+(const Type x)
+            const noexcept requires std::is_arithmetic_v<Type> {
+        Array<Type, Size> output = *this;
+        for (std::size_t i = 0; i < Size; ++i)
+            output[i] += x;
+        return output;
+    }
     inline constexpr Array<Type, Size> operator-(const Array<Type, Size>& other)
             const noexcept requires std::is_arithmetic_v<Type> {
         Array<Type, Size> output = *this;
         for (std::size_t i = 0; i < Size; ++i)
             output[i] -= other.data[i];
+        return output;
+    }
+    inline constexpr Array<Type, Size> operator-(const Type x)
+            const noexcept requires std::is_arithmetic_v<Type> {
+        Array<Type, Size> output = *this;
+        for (std::size_t i = 0; i < Size; ++i)
+            output[i] -= x;
         return output;
     }
     inline constexpr Array<Type, Size> operator*(const Array<Type, Size>& other)
@@ -1589,11 +1633,25 @@ public:
             output[i] *= other.data[i];
         return output;
     }
+    inline constexpr Array<Type, Size> operator*(const Type x)
+            const noexcept requires std::is_arithmetic_v<Type> {
+        Array<Type, Size> output = *this;
+        for (std::size_t i = 0; i < Size; ++i)
+            output[i] *= x;
+        return output;
+    }
     inline constexpr Array<Type, Size> operator/(const Array<Type, Size>& other)
             const noexcept requires std::is_arithmetic_v<Type> {
         Array<Type, Size> output = *this;
         for (std::size_t i = 0; i < Size; ++i)
             output[i] /= other.data[i];
+        return output;
+    }
+    inline constexpr Array<Type, Size> operator/(const Type x)
+            const noexcept requires std::is_arithmetic_v<Type> {
+        Array<Type, Size> output = *this;
+        for (std::size_t i = 0; i < Size; ++i)
+            output[i] /= x;
         return output;
     }
     inline constexpr Array<Type, Size> operator%(const Array<Type, Size>& other)
@@ -1603,6 +1661,13 @@ public:
             output[i] %= other.data[i];
         return output;
     }
+    inline constexpr Array<Type, Size> operator%(const Type x)
+            const noexcept requires std::is_arithmetic_v<Type> {
+        Array<Type, Size> output = *this;
+        for (std::size_t i = 0; i < Size; ++i)
+            output[i] %= x;
+        return output;
+    }
 
     inline constexpr bool operator==(const Array<Type, Size>& other)
             const noexcept requires std::equality_comparable<Type> {
@@ -1610,9 +1675,19 @@ public:
             if (data[i] != other.data[i]) return false;
         return true;
     }
+    inline constexpr bool operator==(const Type& x)
+            const noexcept requires std::equality_comparable<Type> {
+        for (std::size_t i = 0; i < Size; ++i)
+            if (data[i] != x) return false;
+        return true;
+    }
     inline constexpr bool operator!=(const Array<Type, Size>& other)
             const noexcept requires std::equality_comparable<Type> {
         return !(*this == other);
+    }
+    inline constexpr bool operator!=(const Type& x)
+            const noexcept requires std::equality_comparable<Type> {
+        return !(*this == x);
     }
 
     #endif // VECLIB_NO_OPERATOR_OVERLOADS
@@ -2476,6 +2551,12 @@ public:
             data[i] += other.data[i];
         return *this;
     }
+    inline constexpr Vector<Type, Grow>& operator+=(const Type x)
+            noexcept requires std::is_arithmetic_v<Type> {
+        for (std::size_t i = 0; i < count; ++i)
+            data[i] += x;
+        return *this;
+    }
     inline constexpr Vector<Type, Grow>& operator-=(const Vector<Type, Grow>& other)
             noexcept requires std::is_arithmetic_v<Type> {
         #ifdef VECLIB_ASSERT_NOEXCEPT
@@ -2486,6 +2567,12 @@ public:
         #endif // VECLIB_ASSERT_NOEXCEPT
         for (std::size_t i = 0; i < count; ++i)
             data[i] -= other.data[i];
+        return *this;
+    }
+    inline constexpr Vector<Type, Grow>& operator-=(const Type x)
+            noexcept requires std::is_arithmetic_v<Type> {
+        for (std::size_t i = 0; i < count; ++i)
+            data[i] -= x;
         return *this;
     }
     inline constexpr Vector<Type, Grow>& operator*=(const Vector<Type, Grow>& other)
@@ -2500,6 +2587,12 @@ public:
             data[i] *= other.data[i];
         return *this;
     }
+    inline constexpr Vector<Type, Grow>& operator*=(const Type x)
+            noexcept requires std::is_arithmetic_v<Type> {
+        for (std::size_t i = 0; i < count; ++i)
+            data[i] *= x;
+        return *this;
+    }
     inline constexpr Vector<Type, Grow>& operator/=(const Vector<Type, Grow>& other)
             noexcept requires std::is_arithmetic_v<Type> {
         #ifdef VECLIB_ASSERT_NOEXCEPT
@@ -2512,6 +2605,12 @@ public:
             data[i] /= other.data[i];
         return *this;
     }
+    inline constexpr Vector<Type, Grow>& operator/=(const Type x)
+            noexcept requires std::is_arithmetic_v<Type> {
+        for (std::size_t i = 0; i < count; ++i)
+            data[i] /= x;
+        return *this;
+    }
     inline constexpr Vector<Type, Grow>& operator%=(const Vector<Type, Grow>& other)
             noexcept requires std::is_arithmetic_v<Type> {
         #ifdef VECLIB_ASSERT_NOEXCEPT
@@ -2522,6 +2621,12 @@ public:
         #endif // VECLIB_ASSERT_NOEXCEPT
         for (std::size_t i = 0; i < count; ++i)
             data[i] %= other.data[i];
+        return *this;
+    }
+    inline constexpr Vector<Type, Grow>& operator%=(const Type x)
+            noexcept requires std::is_arithmetic_v<Type> {
+        for (std::size_t i = 0; i < count; ++i)
+            data[i] %= x;
         return *this;
     }
 
@@ -2538,6 +2643,13 @@ public:
             output[i] += other.data[i];
         return output;
     }
+    inline constexpr Vector<Type, Grow> operator+(const Type x)
+            const requires std::is_arithmetic_v<Type> {
+        Vector<Type, Grow> output = *this;
+        for (std::size_t i = 0; i < count; ++i)
+            output[i] += x;
+        return output;
+    }
     inline constexpr Vector<Type, Grow> operator-(const Vector<Type, Grow>& other)
             const requires std::is_arithmetic_v<Type> {
         #ifdef VECLIB_ASSERT_NOEXCEPT
@@ -2549,6 +2661,13 @@ public:
         Vector<Type, Grow> output = *this;
         for (std::size_t i = 0; i < count; ++i)
             output[i] -= other.data[i];
+        return output;
+    }
+    inline constexpr Vector<Type, Grow> operator-(const Type x)
+            const requires std::is_arithmetic_v<Type> {
+        Vector<Type, Grow> output = *this;
+        for (std::size_t i = 0; i < count; ++i)
+            output[i] -= x;
         return output;
     }
     inline constexpr Vector<Type, Grow> operator*(const Vector<Type, Grow>& other)
@@ -2564,6 +2683,13 @@ public:
             output[i] *= other.data[i];
         return output;
     }
+    inline constexpr Vector<Type, Grow> operator*(const Type x)
+            const requires std::is_arithmetic_v<Type> {
+        Vector<Type, Grow> output = *this;
+        for (std::size_t i = 0; i < count; ++i)
+            output[i] *= x;
+        return output;
+    }
     inline constexpr Vector<Type, Grow> operator/(const Vector<Type, Grow>& other)
             const requires std::is_arithmetic_v<Type> {
         #ifdef VECLIB_ASSERT_NOEXCEPT
@@ -2575,6 +2701,13 @@ public:
         Vector<Type, Grow> output = *this;
         for (std::size_t i = 0; i < count; ++i)
             output[i] /= other.data[i];
+        return output;
+    }
+    inline constexpr Vector<Type, Grow> operator/(const Type x)
+            const requires std::is_arithmetic_v<Type> {
+        Vector<Type, Grow> output = *this;
+        for (std::size_t i = 0; i < count; ++i)
+            output[i] /= x;
         return output;
     }
     inline constexpr Vector<Type, Grow> operator%(const Vector<Type, Grow>& other)
@@ -2590,6 +2723,13 @@ public:
             output[i] %= other.data[i];
         return output;
     }
+    inline constexpr Vector<Type, Grow> operator%(const Type x)
+            const requires std::is_arithmetic_v<Type> {
+        Vector<Type, Grow> output = *this;
+        for (std::size_t i = 0; i < count; ++i)
+            output[i] %= x;
+        return output;
+    }
 
     inline constexpr bool operator==(const Vector<Type, Grow>& other)
             const requires std::equality_comparable<Type> {
@@ -2603,9 +2743,19 @@ public:
             if (data[i] != other.data[i]) return false;
         return true;
     }
+    inline constexpr bool operator==(const Type& x)
+            const noexcept requires std::equality_comparable<Type> {
+        for (std::size_t i = 0; i < count; ++i)
+            if (data[i] != x) return false; // Short-circuit
+        return true;
+    }
     inline constexpr bool operator!=(const Vector<Type, Grow>& other)
             const requires std::equality_comparable<Type> {
         return !(*this == other);
+    }
+    inline constexpr bool operator!=(const Type& x)
+            const noexcept requires std::equality_comparable<Type> {
+        return !(*this == x);
     }
 
     #endif // VECLIB_NO_OPERATOR_OVERLOADS
