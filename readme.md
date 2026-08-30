@@ -26,7 +26,7 @@ but are left defined for others to use too:
 
 - `VECLIB_NONCONSTRUCTOR_NEW(count, type)`: Allocate
   `count` elements on the heap without calling the constructor
-  of their specified type
+  of their specified `type`
 - `VECLIB_NONDESTRUCTOR_DELETE(data, count, type)`: Free `count`
   elements of type `type` on the heap at the `data` pointer
 
@@ -51,6 +51,13 @@ structure and type defined by veclib.
 **Note:** All types and aliases defined by veclib
 are namespaced under `veclib`.
 
+We can always get the size of any container in
+veclib by calling the `.size()` method on it, and
+receive a read-only pointer to its internal memory
+by calling `.get()`.  
+**Note:** This might be changed to `.data()` to mirror
+the standard library in the future.
+
 ### `diff_t`
 
 A type alias of `std::make_signed_t<std::size_t>`
@@ -59,7 +66,7 @@ used as a sized signed integer.
 ### `Array`
 
 This simple static array class is similar to `std::array`,
-with some extra functionality:
+with some extra functionality inspired by other languages like Rust:
 
 ```cpp
 #include <iostream>
@@ -104,9 +111,15 @@ int main() {
 
     // It also supports comparison
     if (foo == 0) std::cout << "All zeroes!\n"; // Scalar
-    if (foo != baz) std::cout << "Not equal\n";
+    if (foo != baz) std::cout << "Not equal!\n";
 }
 ```
+
+The methods that take in lambdas all allow for them
+to have their last parameter be `std::size_t`
+(given that the previous arguments are the ones required
+by the method) that will hold the index of the
+element being processed.
 
 <!--
 Here put Vector
@@ -174,7 +187,7 @@ operators:
 | `slide_backw`   | `<<=`       | Slide the whole view backward |
 | `slide`         | *none*      | Uses `diff_t` to work as both `slide_` methods |
 | `trim`          | `/=`        | Remove elements at the front of the slice from the view |
-| `extend`        | `|=`        | Add elements in front of the view
+| `extend`        | `\|=`        | Add elements in front of the view
 | `nudge`         | *none*      | Uses `diff_t` to work as `trim` and `extend` |
 | `consume_front` | prefix `++` | Consume the first element |
 | `consume_back`  | prefix `--` | Consume the last element |
