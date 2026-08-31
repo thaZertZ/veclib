@@ -28,7 +28,7 @@ using diff_t = std::make_signed_t<std::size_t>;
 template <typename Ret, typename... Args>
 using TransformFn = Ret(*)(Args...);
 
-tenplate <typename Type>
+template <typename Type>
 class Explicit {
 private:
     Type data {};
@@ -636,6 +636,36 @@ public:
         if (i >= count) throw std::out_of_range("MemSlice<Type>.at(std::size_t): Index is out of bounds");
         #endif // VECLIB_ASSERT_NOEXCEPT
         return data[i];
+    }
+
+    inline constexpr Type* map(TransformFn<void, Type&> fn) noexcept {
+        // Do nullptr checks later
+        for (std::size_t i = 0; i < count; ++i)
+            fn(data[i]);
+        return data;
+    }
+    inline constexpr Type* map(TransformFn<void, Type&, std::size_t> fn) noexcept {
+        // Do nullptr checks later
+        for (std::size_t i = 0; i < count; ++i)
+            fn(data[i], i);
+        return data;
+    }
+
+    inline constexpr Type fold(TransformFn<void, Type&, const Type&> fn) const noexcept {
+        // Do nullptr checks later
+        // We should also require default constructible on Type
+        Type acc {};
+        for (std::size_t i = 0; i < count; ++i)
+            fn(acc, data[i]);
+        return acc;
+    }
+    inline constexpr Type fold(TransformFn<void, Type&, const Type&, std::size_t> fn) const noexcept {
+        // Do nullptr checks later
+        // We should also require default constructible on Type
+        Type acc {};
+        for (std::size_t i = 0; i < count; ++i)
+            fn(acc, data[i], i);
+        return acc;
     }
 
     // slice+=   change size            grow()              } -----+
@@ -2311,6 +2341,69 @@ public:
         count = slide_backw(index, slots);
         return count;
     }
+
+    inline constexpr std::size_t append(const Vector<Type, Grow>& other) {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data != nullptr);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr) throw std::runtime_error(
+            "Vector<Type, Grow>.append(const Vector<Type, Grow>&): Data pointer is nullptr");
+        #endif // VECLIB_ASSERT_NOEXCEPT
+        if (other.data == nullptr) return count;
+        reserve(count + other.count);
+        for (std::size_t i = 0; i < other.count; ++i)
+            push_back(other[i]);
+        return count;
+    }
+    inline constexpr std::size_t append(Vector<Type, Grow>&& other) {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data != nullptr);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr) throw std::runtime_error(
+            "Vector<Type, Grow>.append(Vector<Type, Grow>&&): Data pointer is nullptr");
+        #endif // VECLIB_ASSERT_NOEXCEPT
+        if (other.data == nullptr) return count;
+        reserve(count + other.count);
+        for (std::size_t i = 0; i < other.count; ++i)
+            push_back(std::move(other[i]));
+        // Move it
+        other.count = 0;
+        other.cap = 0;
+        other.data = nullptr;
+        return count;
+    }
+    template <std::size_t ArraySize>
+    inline constexpr std::size_t append(const Array<Type, ArraySize>& other) {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data != nullptr);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr) throw std::runtime_error(
+            "Vector<Type, Grow>.append<ArraySize>(const Array<Type, ArraySize>&): Data pointer is nullptr");
+        #endif // VECLIB_ASSERT_NOEXCEPT
+        if (other.get() == nullptr) return count;
+        reserve(count + ArraySize);
+        for (std::size_t i = 0; i < ArraySize; ++i)
+            push_back(other[i]);
+        return count;
+    }
+    template <std::size_t ArraySize>
+    inline constexpr std::size_t append(Array<Type, ArraySize>&& other) {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data != nullptr);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr) throw std::runtime_error(
+            "Vector<Type, Grow>.append<ArraySize>(Array<Type, ArraySize>&&): Data pointer is nullptr");
+        #endif // VECLIB_ASSERT_NOEXCEPT
+        if (other.get() == nullptr) return count;
+        reserve(count + ArraySize);
+        for (std::size_t i = 0; i < ArraySize; ++i)
+            push_back(std::move(other[i]));
+        // I absolutely HATE this but it's needed unfortunately
+        const_cast<Type*>(other.get()) = nullptr;
+        return count;
+    }
+
+    // Iterators
 
     inline constexpr Type* p_begin() {
         #ifdef VECLIB_ASSERT_NOEXCEPT
