@@ -55,20 +55,46 @@ namespace veclib {
 #define VECLIB_EXPLICIT_NONDESTRUCTOR_DELETE(data, type, count) \
     (::operator delete((data), (count) * sizeof(type)))
 
-#ifdef VECLIB_ASSERT_NOEXCEPT
-/// @brief Expands to `noexcept` if `VECLIB_ASSERT_NOEXCEPT` is defined
-#define VECLIB_NOEXCEPT noexcept
-/// @brief Expands to a conditional `noexcept` clause into which is passed
-///        an expression that calls a given function, evaluating to
-///        `noexcept(false)` if it is not `noexcept` itself. This always
-///        expands to `noexcept` if `VECLIB_ASSERT_NOEXCEPT` is defined
-/// @param ident The identifier of the function to check
-/// @param __VA_ARGS__... The arguments to pass to the function, these can be
-///                       `std::declval<>()` calls or just arbitrary values
-#define VECLIB_COND_NOEXCEPT(ident, ...) noexcept
-#else // VECLIB_ASSERT_NOEXCEPT
-/// @brief Expands to `noexcept` if `VECLIB_ASSERT_NOEXCEPT` is defined
-#define VECLIB_NOEXCEPT
+/// @brief Expands to a conditional `noexcept` clause that evaluates to
+///        `noexcept(true)` if a specified type's default constructor
+///        is `noexcept`
+#define VECLIB_NOEXCEPT_DEFAULT_CONSTRUCTIBLE(type) \
+    noexcept(std::is_nothrow_default_constructible_v<type>)
+
+/// @brief Expands to a conditional `noexcept` clause that evaluates to
+///        `noexcept(true)` if a specified type's destructor is `noexcept`
+#define VECLIB_NOEXCEPT_DESTRUCTIBLE(type) \
+    noexcept(std::is_nothrow_destructible_v<type>)
+
+/// @brief Expands to a conditional `noexcept` clause that evaluates to
+///        `noexcept(true)` if a specified type's copy constructor is
+///        `noexcept`
+#define VECLIB_NOEXCEPT_COPY_CONSTRUCTIBLE(type) \
+    noexcept(std::is_nothrow_copy_constructible_v<type>)
+/// @brief Expands to a conditional `noexcept` clause that evaluates to
+///        `noexcept(true)` if a specified type's copy assignment
+///        operator is `noexcept`
+#define VECLIB_NOEXCEPT_COPY_ASSIGNABLE(type) \
+    noexcept(std::is_nothrow_copy_assignable_v<type>)
+
+/// @brief Expands to a conditional `noexcept` clause that evaluates to
+///        `noexcept(true)` if a specified type's move constructor is
+///        `noexcept`
+#define VECLIB_NOEXCEPT_MOVE_CONSTRUCTIBLE(type) \
+    noexcept(std::is_nothrow_move_constructible_v<type>)
+/// @brief Expands to a conditional `noexcept` clause that evaluates to
+///        `noexcept(true)` if a specified type's move assignment
+///        operator is `noexcept`
+#define VECLIB_NOEXCEPT_MOVE_ASSIGNABLE(type) \
+    noexcept(std::is_nothrow_move_assignable_v<type>)
+
+/// @brief Expands to the minimum number of bytes required to fit the
+///        provided number of bits
+#define VECLIB_BYTESIZE(expr) (((expr) + (CHAR_BIT - 1) /* round up */) / CHAR_BIT)
+/// @brief Expands to the number of bits contained in the provided
+///        number of bytes
+#define VECLIB_BITSIZE(expr) ((expr) * CHAR_BIT)
+
 /// @brief Expands to a conditional `noexcept` clause into which is passed
 ///        an expression that calls a given function, evaluating to
 ///        `noexcept(false)` if it is not `noexcept` itself. This always
@@ -77,17 +103,32 @@ namespace veclib {
 /// @param __VA_ARGS__... The arguments to pass to the function, these can be
 ///                       `std::declval<>()` calls or just arbitrary values
 #define VECLIB_COND_NOEXCEPT(ident, ...) \
-    noexcept(std::declval<decltype(ident)>()(__VA_ARGS__))
+    noexcept(noexcept(std::declval<decltype(ident)>()(__VA_ARGS__)))
+
+#ifdef VECLIB_ASSERT_NOEXCEPT
+
+/// @brief Expands to `noexcept` if `VECLIB_ASSERT_NOEXCEPT` is defined
+#define VECLIB_NOEXCEPT noexcept(true)
+
+#else // VECLIB_ASSERT_NOEXCEPT
+
+/// @brief Expands to `noexcept(true)` if `VECLIB_ASSERT_NOEXCEPT`
+///        is defined and `noexcept(false)` if it is not defined
+#define VECLIB_NOEXCEPT noexcept(false)
+
 #endif // VECLIB_ASSERT_NOEXCEPT
+
+#define VECLIB_FN_NOEXCEPT(fn, ...) \
+    noexcept(VECLIB_NOEXCEPT && VECLIB_COND_NOEXCEPT(fn, __VA_ARGS__))
 
 /// @brief Type alias for the signed equivalent of `std::size_t`
 using diff_t = std::make_signed_t<std::size_t>;
 
-/// @brief Templated type alias for a `noexcept` function signature
+/// @brief Templated type alias for a function signature
 /// @tparam Ret The return type of the function
 /// @tparam ...Args The type of the arguments of the function
 template <typename Ret, typename... Args>
-using Function = Ret(*)(Args...) noexcept;
+using Function = Ret(*)(Args...);
 
 template <typename Type>
 using MemIterator = Type*;
@@ -165,6 +206,13 @@ inline constexpr Type join(const Type&, const Type&) VECLIB_NOEXCEPT;
 /// @tparam Type The type being referenced by the slice
 template <typename Type>
 class Slice {
+public: // Public section for defining aliases in advance
+
+    /// @brief Member type alias for accessing the referenced type
+    using Item = Type;
+    /// @brief Member type alias for the type of ourselves
+    using Self = Slice<Type>;
+
 private:
     Type* data = nullptr;
     std::size_t count = 0;
@@ -213,12 +261,14 @@ private:
         #endif // VECLIB_ASSERT_NOEXCEPT
     }
 
-public:
+    inline constexpr Self internal_subslice(std::size_t start, std::size_t end) const VECLIB_NOEXCEPT {
+        this->nullptr_check("veclib::Slice.subslice(): The slice isn't referencing anything");
+        this->overflow_check(start, "veclib::Slice.subslice(): Starting index exceeds slice size");
+        this->overflow_check(end, "veclib::Slice.subslice(): Starting index exceeds slice size");
+        return Self(data + start, end - start);
+    }
 
-    /// @brief Member type alias for accessing the referenced type
-    using Item = Type;
-    /// @brief Member type alias for the type of ourselves
-    using Self = Slice<Type>;
+public:
 
     /// @brief Default constructor
     Slice() noexcept = default;
@@ -242,17 +292,14 @@ public:
     /// @param other The object to move
     Slice(Self&& other) noexcept
             : data(other.data), count(other.count) {
-        other.data = nullptr;
-        other.count = 0;
+        other.clear();
     }
     /// @brief Move assignment
     /// @param other The object to move
     /// @return A reference to the modified object
     inline constexpr Self& operator=(Self&& other) noexcept {
-        data = other.data;
-        count = other.count;
-        other.data = nullptr;
-        other.count = 0;
+        *this = other;
+        other.clear();
         return *this;
     }
 
@@ -277,13 +324,26 @@ public:
     inline constexpr bool empty() const noexcept { return count == 0; }
     /// @brief Returns `true` if the slice isn't referencing anything
     inline constexpr bool null() const noexcept { return data == nullptr; }
-    /// @brief Put the slice into an empty state
+    /// @brief Put the slice into an empty state, by setting the data pointer
+    ///        to `nullptr` and the size to `0`, such that calling `null()`
+    ///        or `empty()` will return `true`. To check the cases of `null()`
+    ///        and `empty()` simultaneously, define `VECLIB_EXTRA` and then
+    ///        use `cleared()` or `moved()`
     /// @return A reference to the modified object
     inline constexpr Self& clear() noexcept {
         data = nullptr;
         count = 0;
         return *this;
     }
+
+    #ifdef VECLIB_EXTRA
+
+    /// @brief Returns `true` if `clear()` was called on the slice, or if the slice was moved
+    inline constexpr bool cleared() const noexcept { return this->empty() && this->null(); }
+    /// @brief Alias for `cleared()`
+    inline constexpr bool moved() const noexcept { return this->cleared(); }
+
+    #endif // VECLIB_EXTRA
 
     /// @brief Access elements into the slice with no bounds checking
     /// @param i The index into the slice
@@ -303,6 +363,28 @@ public:
         this->bounds_check(i, "veclib::Slice.at(): Index is out of bounds");
         return data[i];
     }
+
+    #ifdef VECLIB_EXTRA
+
+    inline constexpr Type& circular_at(std::size_t i) noexcept { return data[i % count]; }
+    inline constexpr const Type& circular_at(std::size_t i) const noexcept { return data[i % count]; }
+
+    #ifndef VECLIB_NO_OPERATOR_OVERLOADS
+
+    inline constexpr Type& operator()(std::size_t i) noexcept { return data[i % count]; }
+    inline constexpr const Type& operator()(std::size_t i) const noexcept { return data[i % count]; }
+
+    #endif // VECLIB_NO_OPERATOR_OVERLOADS
+
+    inline constexpr Type& clamped_at(std::size_t i) noexcept { return data[i >= count ? count - 1 : i]; }
+    inline constexpr const Type& clamped_at(std::size_t i) const noexcept { return data[i >= count ? count - 1 : i]; }
+
+    #endif // VECLIB_EXTRA
+
+    /// @brief Check if a given index is valid in this slice
+    /// @param i The index to check
+    /// @return `true` if the index is valid
+    inline constexpr bool inside_bounds(std::size_t i) const noexcept { return i < count; }
 
     /// @brief Return a reference to the first element in the slice
     /// @throw `std::runtime_error` if the slice is empty and exceptions are not disabled
@@ -364,16 +446,14 @@ public:
     /// @param fn The function to apply
     /// @return A reference to the modified object
     inline constexpr Self& map(Function<void, Type&> fn)
-            //VECLIB_COND_NOEXCEPT(fn, std::declval<Type&>())
-            VECLIB_NOEXCEPT {
+            VECLIB_FN_NOEXCEPT(fn, std::declval<Type&>()) {
         this->empty_check("veclib::Slice.map(): Slice is empty");
         for (std::size_t i = 0; i < count; ++i)
             fn(data[i]);
         return *this;
     }
     inline constexpr Self& map(Function<void, Type&, std::size_t> fn)
-            //VECLIB_COND_NOEXCEPT(fn, std::declval<Type&>(), 0)
-            VECLIB_NOEXCEPT {
+            VECLIB_NOEXCEPT(fn, std::declval<Type&>(), 0) {
         this->empty_check("veclib::Slice.map(): Slice is empty");
         for (std::size_t i = 0; i < count; ++i)
             fn(data[i], i);
@@ -389,16 +469,16 @@ public:
     /// @param acc An optional starting value for the accumulated value. By default
     ///            it is assigned a default-constructed value of `Type`
     inline constexpr Type fold(Function<void, Type&, const Type&> fn, const Type& acc = Type())
-            //VECLIB_COND_NOEXCEPT(fn, std::declval<Type&>(), std::declval<const Type&>())
-            const VECLIB_NOEXCEPT requires (std::is_default_constructible_v<Type>) {
+            const VECLIB_FN_NOEXCEPT(fn, std::declval<Type&>(), std::declval<const Type&>())
+            requires (std::is_default_constructible_v<Type>) {
         this->empty_check("veclib::Slice.fold(): Slice is empty");
         for (std::size_t i = 0; i < count; ++i)
             fn(acc, data[i]);
         return acc;
     }
     inline constexpr Type fold(Function<void, Type&, const Type&, std::size_t> fn, const Type& acc = Type())
-            //VECLIB_COND_NOEXCEPT(fn, std::declval<Type&>(), std::declval<const Type&>(), 0)
-            const VECLIB_NOEXCEPT requires (std::is_default_constructible_v<Type>) {
+            const VECLIB_FN_NOEXCEPT(fn, std::declval<Type&>(), std::declval<const Type&>(), 0)
+            requires (std::is_default_constructible_v<Type>) {
         this->empty_check("veclib::Slice.fold(): Slice is empty");
         for (std::size_t i = 0; i < count; ++i)
             fn(acc, data[i], i);
@@ -413,26 +493,22 @@ public:
     ///        index into the slice of the element currently being processed
     /// @param fn The check function
     /// @throw `std::runtime_error` if the slice is empty and exceptions are not disabled
-    inline constexpr bool all(Function<bool, const Type&> fn) const VECLIB_NOEXCEPT {
+    inline constexpr bool all(Function<bool, const Type&> fn) const
+            VECLIB_FN_NOEXCEPT(fn, std::declval<const Type&>()) {
         this->empty_check("veclib::Slice.all(): Slice is empty");
         for (std::size_t i = 0; i < count; ++i)
             if (!fn(data[i])) return false;
         return true;
     }
-    inline constexpr bool all(Function<bool, const Type&, std::size_t> fn) const VECLIB_NOEXCEPT {
+    inline constexpr bool all(Function<bool, const Type&, std::size_t> fn) const
+            VECLIB_FN_NOEXCEPT(fn, std::declval<const Type&>(), 0) {
         this->empty_check("veclib::Slice.all(): Slice is empty");
         for (std::size_t i = 0; i < count; ++i)
             if (!fn(data[i], i)) return false;
         return true;
     }
 
-    /// @brief Return `true` if all values in the slice are equal to another value
-    /// @param value The value to check for equality against
-    /// @throw `std::runtime_error` if the slice is empty and exceptions are not disabled
-    inline constexpr bool all_eq(const Type& value) const VECLIB_NOEXCEPT
-            requires (std::equality_comparable<Type>) {
-        return this->all([&value] (const Type& x) { return x == value; });
-    }
+    // There is no more `all_eq` because it was replaced by a scalar overload of `operator==`
 
     /// @brief Return `true` if at least an element in the slice passes a custom check function.
     ///        The check function must return `bool`, accept a `const Type&` parameter
@@ -440,26 +516,22 @@ public:
     ///        index into the slice of the element currently being processed
     /// @param fn The check function
     /// @throw `std::runtime_error` if the slice is empty and exceptions are not disabled
-    inline constexpr bool any(Function<bool, const Type&> fn) const VECLIB_NOEXCEPT {
+    inline constexpr bool any(Function<bool, const Type&> fn) const
+            VECLIB_FN_NOEXCEPT(fn, std::declval<const Type&>()) {
         this->empty_check("veclib::Slice.any(): Slice is empty");
         for (std::size_t i = 0; i < count; ++i)
             if (fn(data[i])) return true;
         return false;
     }
-    inline constexpr bool any(Function<bool, const Type&, std::size_t> fn) const VECLIB_NOEXCEPT {
+    inline constexpr bool any(Function<bool, const Type&, std::size_t> fn) const
+            VECLIB_FN_NOEXCEPT(fn, std::declval<const Type&>(), 0) {
         this->empty_check("veclib::Slice.any(): Slice is empty");
         for (std::size_t i = 0; i < count; ++i)
             if (fn(data[i], i)) return true;
         return false;
     }
 
-    /// @brief Return `true` if at least a value in the slice is equal to another value
-    /// @param value The value to check for equality against
-    /// @throw `std::runtime_error` if the slice is empty and exceptions are not disabled
-    inline constexpr bool any_eq(const Type& value) const VECLIB_NOEXCEPT
-            requires (std::equality_comparable<Type>) {
-        return this->any([&value] (const Type& x) { return x == value; });
-    }
+    // There is no more `any_eq` because it was replaced by an overload of `contains`
 
     #endif // VECLIB_EXTRA
 
@@ -719,12 +791,24 @@ public:
         return self.resize(x);
     }
 
-    /// @brief Compare two slices for equality
+    /// @brief Compare two slices for in-memory equality (check for memory ranges to be the same)
     /// @param other The other slice to compare
     inline constexpr bool operator==(const Self& other) const noexcept { return (data == other.data) && (count == other.count); }
+    /// @brief Compare a slice against a scalar value for equality
+    /// @param value The scalar value
+    inline constexpr bool operator==(const Type& value) const VECLIB_NOEXCEPT
+            requires (std::equality_comparable<Type>) {
+        this->nullptr_check("veclib::Slice.operator==(): The slice isn't referencing anything");
+        for (std::size_t i = 0; i < count; ++i)
+            if (data[i] != value) return false;
+        return true;
+    }
     /// @brief Compare two slices for inequality
     /// @param other The other slice ot compare
     inline constexpr bool operator!=(const Self& other) const noexcept { return !(*this == other); }
+    /// @brief Compare a slice against a scalar value for inequality
+    /// @param value The scalar value
+    inline constexpr bool operator!=(const Type& value) const noexcept { return !(*this == value); }
     /// @brief Cast this slice to a boolean, evaluating to `true` if the slice is not empty
     inline constexpr operator bool() const noexcept { return !this->empty(); }
 
@@ -814,6 +898,17 @@ public:
     /// @param ptr The pointer to check
     /// @return `true` if the pointer is included in the memory region referenced by this slice
     inline constexpr bool contains(Type* ptr) const noexcept { return (ptr >= data) && (ptr < data + count); }
+    /// @brief Check if a provided value is contained in this slice
+    /// @param value The value to search for
+    /// @throw `std::runtime_error` if the slice isn't referencing anything
+    inline constexpr bool contains(const Type& value) const VECLIB_NOEXCEPT
+            requires (std::equality_comparable<Type>) {
+        this->nullptr_check("veclib::Slice.contains(): The slice isn't referencing anything");
+        if (count == 0) return false; // Systematically false
+        for (std::size_t i = 0; i < count; ++i)
+            if (data[i] != value) return false;
+        return true;
+    }
     /// @brief Check if a whole slice falls inside the memory region referenced by this slice
     /// @param other The slice to check
     /// @return `true` if the starting address of the other slice is greater than or equal to the
@@ -978,15 +1073,35 @@ public:
         return Slice<NewType>(reinterpret_cast<NewType*>(data), new_count);
     }
 
+    /// @brief Construct a slice referencing a portion of this slice's memory region.
+    /// @param start The index into this slice at which the new slice should start.
+    ///              Omitting this argument defaults it to `0`
+    /// @param end The exclusive index into this slice at which the new slice should end.
+    ///            Omitting this argument defaults it to this slice's size minus the
+    ///            starting index, i.e. always reaching the end of the slice
+    /// @throw `std::runtime_error` if this slice isn't referencing anything,
+    ///        `std::overflow_error` if the starting or ending indeces exceed this slice's size.
+    ///        only if exceptions are not disabled
+    inline constexpr Self subslice(std::size_t start = 0) const VECLIB_NOEXCEPT {
+        return this->internal_subslice(start, count - start); // Omit exclusive index and specify the maximum
+    }
+    inline constexpr Self subslice(std::size_t start, std::size_t end) const VECLIB_NOEXCEPT {
+        return this->internal_subslice(start, end);
+    }
     /// @brief Construct a slice referencing a portion of this slice's memory region
-    /// @param offset The index into this slice at which the slice should start
-    /// @param len The lenght of the new slice
-    /// @throw `std::overflow_error` if the offset exceeds the memory region of this slice
-    ///        or if the offset plus the length exceed it
-    inline constexpr Self subslice(std::size_t offset, std::size_t len) const VECLIB_NOEXCEPT {
-        this->overflow_check(offset, "veclib::Slice.subslice(): Offset exceeds slice boundaries");
-        this->overflow_check(offset + len, "veclib::Slice.subslice(): Length exceeds slice boundaries");
-        return Self(data + offset, len);
+    /// @param offset The index into this slice at which the new slice should start.
+    ///               Omitting this argument defaults it to `0`
+    /// @param len The length of the new slice, if it exceeds the maximum size of this
+    ///            slice, the value is capped and by default it equals `~0ULL`
+    ///            (maximum value for `std::size_t`)
+    /// @throw `std::runtime_error` if this slice isn't referencing anything,
+    ///        `std::overflow_error` if the offset exceeds the memory region of this slice
+    ///        or if the offset plus the length exceed it, only if exceptions are not disabled
+    inline constexpr Self subslice_len(std::size_t start = 0, std::size_t len = ~0ULL) const VECLIB_NOEXCEPT {
+        this->nullptr_check("veclib::Slice.subslice_len(): The slice isn't referencing anything");
+        this->bounds_check(start, "veclib::Slice.subslice_len(): Starting index is out of bounds");
+        if (start + len >= count) len = count - start; // Clamp the value
+        return Slice<Type>(data + start, len);
     }
 
     /// @brief Keep trimming elements from the beginning of the slice while a custom
@@ -995,7 +1110,7 @@ public:
     ///        next element to check for trimming
     /// @param fn The custom function
     /// @return A reference to the modified object
-    inline constexpr Self& trim_while(Function<bool, const Type&> fn) noexcept {
+    inline constexpr Self& trim_while(Function<bool, const Type&> fn) VECLIB_COND_NOEXCEPT(fn, std::declval<const Type&>()) {
         while (count > 0 && fn(data)) this->consume_front();
         return *this;
     } // Should there be a copy variant?
@@ -1004,7 +1119,7 @@ public:
     /// @return A reference to the modified object
     inline constexpr Self& trim_leading(const Type& value) noexcept
             requires (std::equality_comparable<Type>) {
-        return this->trim_while([&value] (const Type& x) { return x == value; });
+        return this->trim_while([&value] (const Type& x) noexcept { return x == value; });
     } // And here too?
     /// @brief Keep trimming elements from the beginning of the slice while a custom
     ///        function returns `true`. The custom function must return `bool` and
@@ -1012,7 +1127,7 @@ public:
     ///        next element to check for trimming
     /// @param fn The custom function
     /// @return A reference to the modified object
-    inline constexpr Self& trim_until(Function<bool, const Type&> fn) noexcept {
+    inline constexpr Self& trim_until(Function<bool, const Type&> fn) VECLIB_COND_NOEXCEPT(fn, std::declval<const Type&>()) {
         while (count > 0 && !fn(data)) this->consume_front();
         return *this;
     } // And here too?!?!?
@@ -1054,6 +1169,559 @@ public:
     inline constexpr Self& operator|=(const Self& other) VECLIB_NOEXCEPT { return this->join(other); }
     /// @brief Operator overload for calling `join_copy`
     inline constexpr Self operator|(const Self& other) const VECLIB_NOEXCEPT { return ::veclib::join(*this, other); }
+
+    #endif // VECLIB_NO_OPERATOR_OVERLOADS
+};
+
+
+template <typename Type, std::size_t Size>
+class Array {
+private:
+
+    Type data[Size] {};
+
+    void bounds_check(std::size_t i, const char* str) const {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(i < Size);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (i >= Size) throw std::out_of_range(str);
+        #endif // VECLIB_ASSERT_NOEXCEPT
+    }
+    void overflow_check(std::size_t i, const char* str) const {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(i <= Size);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (i > Size) throw std::overflow_error(str);
+        #endif // VECLIB_ASSERT_NOEXCEPT
+    }
+    void underflow_check(std::size_t i, const char* str) const {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(i <= Size);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (i > Size) throw std::underflow_error(str);
+        #endif // VECLIB_ASSERT_NOEXCEPT
+    }
+    void nullptr_check(const char* str) const {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data != nullptr);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (data == nullptr) throw std::runtime_error(str);
+        #endif // VECLIB_ASSERT_NOEXCEPT
+    }
+    consteval void empty_check(const char* str) const {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        static_assert(Size != 0);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if constexpr (Size == 0) throw std::runtime_error(str);
+        #endif // VECLIB_ASSERT_NOEXCEPT
+    }
+
+    inline constexpr Slice<Type> internal_slice(std::size_t start, std::size_t end) const VECLIB_NOEXCEPT {
+        this->nullptr_check("veclib::Array.slice(): The array was moved");
+        this->overflow_check(start, "veclib::Array.slice(): Starting index exceeds array size");
+        this->overflow_check(end, "veclib::Array.slice(): Ending index exceeds array size");
+        return Slice<Type>(data + start, end - start);
+    }
+
+public:
+
+    using Item = Type;
+    using Self = Array<Type, Size>;
+
+    Array() VECLIB_NOEXCEPT_DEFAULT_CONSTRUCTIBLE(Type) requires (std::is_default_constructible_v<Type>) = default;
+    ~Array() VECLIB_NOEXCEPT_DESTRUCTIBLE(Type) requires (std::is_destructible_v<Type>) = default;
+
+    Array(std::initializer_list<const Type&> args) VECLIB_NOEXCEPT
+            requires (std::is_copy_assignable_v<Type>) {
+        this->overflow_check(args.size(), "veclib::Array.Array(): Too many initializer list values");
+        for (std::size_t i = 0; i < args.size(); ++i)
+            data[i] = args.begin()[i];
+    }
+    inline constexpr Self& operator=(std::initializer_list<const Type&> args) VECLIB_NOEXCEPT
+            requires (std::is_copy_assignable_v<Type>) {
+        this->overflow_check(args.size(), "veclib::Array.Array(): Too many initializer list values");
+        for (std::size_t i = 0; i < args.size(); ++i)
+            data[i] = args.begin()[i];
+        return *this;
+    }
+
+    Array(const Type& value) VECLIB_NOEXCEPT_COPY_ASSIGNABLE(Type)
+            requires (std::is_copy_assignable_v<Type>) {
+        for (std::size_t i = 0; i < Size; ++i)
+            data[i] = value;
+    }
+    inline constexpr Self& operator=(const Type& value) VECLIB_NOEXCEPT_COPY_ASSIGNABLE(Type)
+            requires (std::is_copy_assignable_v<Type>) {
+        for (std::size_t i = 0; i < Size; ++i)
+            data[i] = value;
+        return *this;
+    }
+
+    Array(const Self& other) VECLIB_NOEXCEPT_COPY_ASSIGNABLE(Type)
+            requires (std::is_copy_assignable_v<Type>) {
+        for (std::size_t i = 0; i < Size; ++i)
+            data[i] = other.data[i];
+    }
+    inline constexpr Self& operator=(const Self& other) VECLIB_NOEXCEPT_COPY_ASSIGNABLE(Type)
+            requires (std::is_copy_assignable_v<Type>) {
+        for (std::size_t i = 0; i < Size; ++i)
+            data[i] = other.data[i];
+        return *this;
+    }
+
+    Array(Self&& other) VECLIB_NOEXCEPT_MOVE_ASSIGNABLE(Type)
+            requires (std::is_move_assignable_v<Type>) {
+        for (std::size_t i = 0; i < Size; ++i)
+            data[i] = std::move(other.data[i]);
+        other.data = nullptr;
+    }
+    inline constexpr Self& operator=(Self&& other) VECLIB_NOEXCEPT_MOVE_ASSIGNABLE(Type)
+            requires (std::is_move_assignable_v<Type>) {
+        for (std::size_t i = 0; i < Size; ++i)
+            data[i] = std::move(other.data[i]);
+        other.data = nullptr;
+        return *this;
+    }
+
+    inline constexpr const Type* get() const noexcept { return data; }
+    inline consteval std::size_t size() const noexcept { return Size; }
+    inline consteval bool empty() const noexcept { return Size == 0; }
+    inline constexpr bool moved() const noexcept { return data == nullptr; }
+
+    inline constexpr bool operator==(const Self& other) const VECLIB_NOEXCEPT
+            requires (std::equality_comparable<Type>) {
+        this->nullptr_check("veclib::Array.operator==(): The array was moved");
+        for (std::size_t i = 0; i < Size; ++i)
+            if (data[i] != other.data[i]) return false;
+        return true;
+    }
+    inline constexpr bool operator==(const Type& value) const VECLIB_NOEXCEPT
+            requires (std::equality_comparable<Type>) {
+        this->nullptr_check("veclib::Array.operator==(): The array was moved");
+        for (std::size_t i = 0; i < Size; ++i)
+            if (data[i] != value) return false;
+        return true;
+    }
+    inline constexpr bool operator!=(const Self& other) const VECLIB_NOEXCEPT
+        requires (std::equality_comparable<Type>) { return !(*this == other); }
+    inline constexpr bool operator!=(const Type& value) const VECLIB_NOEXCEPT
+        requires (std::equality_comparable<Type>) { return !(*this == value); }
+    inline constexpr operator bool() const noexcept { return data != nullptr; }
+
+    inline constexpr Slice<Type> slice(std::size_t start = 0) const VECLIB_NOEXCEPT {
+        return this->internal_slice(start, Size - start);
+    }
+    inline constexpr Slice<Type> slice(std::size_t start, std::size_t end) const VECLIB_NOEXCEPT {
+        return this->internal_slice(start, end);
+    }
+    inline constexpr Slice<Type> slice_len(std::size_t start = 0, std::size_t len = ~0ULL) const VECLIB_NOEXCEPT {
+        this->nullptr_check("veclib::Array.slice_len(): The array was moved");
+        this->bounds_check(start, "veclib::Array.slice_len(): Starting index is out of bounds");
+        if (start + len >= Size) len = Size - start; // Clamp the value
+        return Slice<Type>(data + start, len);
+    }
+
+    inline constexpr Type& first() noexcept
+        requires (Size != 0) { return data[0]; }
+    inline constexpr const Type& first() const noexcept
+        requires (Size != 0) { return data[0]; }
+
+    inline constexpr Slice<Type> first(std::size_t x) noexcept
+            requires (Size != 0) {
+        this->overflow_check(x, "veclib::Array.first(): Number of first elements to extract exceeds array size");
+        return Slice<Type>(data, x);
+    }
+    inline constexpr const Slice<Type> first(std::size_t x) const noexcept
+            requires (Size != 0) {
+        this->overflow_check(x, "veclib::Array.first(): Number of first elements to extract exceeds array size");
+        return Slice<Type>(data, x);
+    }
+
+    inline constexpr Type& last() noexcept
+        requires (Size != 0) { return data[Size - 1]; }
+    inline constexpr const Type& last() const noexcept
+        requires (Size != 0) { return data[Size - 1]; }
+
+    inline constexpr Slice<Type> last(std::size_t x) noexcept
+            requires (Size != 0) {
+        this->underflow_check(x, "veclib::Array.last(): Number of last elements to extract exceeds array size");
+        return Slice<Type>(data + Size - x, x);
+    }
+    inline constexpr const Slice<Type> last(std::size_t x) const noexcept
+            requires (Size != 0) {
+        this->underflow_check(x, "veclib::Array.last(): Number of last elements to extract exceeds array size");
+        return Slice<Type>(data + Size - x, x);
+    }
+
+    inline constexpr Type& operator[](std::size_t i) noexcept { return data[i]; }
+    inline constexpr const Type& operator[](std::size_t i) const noexcept { return data[i]; }
+
+    inline constexpr Type& at(std::size_t i) VECLIB_NOEXCEPT {
+        this->bounds_check(i, "veclib::Array.at(): Index is out of bounds");
+        return data[i];
+    }
+    inline constexpr const Type& at(std::size_t i) const VECLIB_NOEXCEPT {
+        this->bounds_check(i, "veclib::Array.at(): Index is out of bounds");
+        return data[i];
+    }
+
+    #ifdef VECLIB_EXTRA
+
+    inline constexpr Type& circular_at(std::size_t i) noexcept { return data[i % Size]; }
+    inline constexpr const Type& circular_at(std::size_t i) const noexcept { return data[i % Size]; }
+
+    #ifndef VECLIB_NO_OPERATOR_OVERLOADS
+
+    inline constexpr Type& operator()(std::size_t i) noexcept { return data[i % Size]; }
+    inline constexpr const Type& operator()(std::size_t i) const noexcept { return data[i % Size]; }
+
+    #endif // VECLIB_NO_OPERATOR_OVERLOADS
+
+    inline constexpr Type& clamped_at(std::size_t i) noexcept { return data[i >= Size ? Size - 1 : i]; }
+    inline constexpr const Type& clamped_at(std::size_t i) const noexcept { return data[i >= Size ? Size - 1 : i]; }
+
+    #endif // VECLIB_EXTRA
+
+    inline constexpr bool inside_bounds(std::size_t i) const noexcept { return i < Size; }
+
+    inline constexpr bool contains(Type* ptr) const noexcept { return (ptr >= data) && (ptr < data + Size); }
+    inline constexpr bool contains(const Type& value) const VECLIB_NOEXCEPT
+            requires (std::equality_comparable<Type>) {
+        this->nullptr_check("veclib::Array.contains(): The array was moved");
+        for (std::size_t i = 0; i < Size; ++i)
+            if (data[i] == value) return true;
+        return false;
+    }
+
+    inline constexpr Self& map(Function<void, Type&> fn) VECLIB_FN_NOEXCEPT(fn, std::declval<Type&>()) {
+        // We don't require Size to be non-zero, since the loop will just never run
+        this->nullptr_check("veclib::Array.map(): The array was moved");
+        for (std::size_t i = 0; i < Size; ++i)
+            fn(data[i]);
+        return *this;
+    }
+    inline constexpr Self& map(Function<void, Type&, std::size_t> fn) VECLIB_FN_NOEXCEPT(fn, std::declval<Type&>(), 0) {
+        this->nullptr_check("veclib::Array.map(): The array was moved");
+        for (std::size_t i = 0; i < Size; ++i)
+            fn(data[i], i);
+        return *this;
+    }
+
+    inline constexpr Type fold(Function<void, Type&, const Type&> fn, Type acc = {})
+            VECLIB_FN_NOEXCEPT(fn, std::declval<Type&>(), std::declval<const Type&>())
+            requires (std::is_default_constructible_v<Type>) {
+        this->nullptr_check("veclib::Array.fold(): The array was moved");
+        for (std::size_t i = 0; i < Size; ++i)
+            fn(data[i], acc);
+        return acc;
+    }
+    inline constexpr Type fold(Function<void, Type&, const Type&, std::size_t> fn, Type acc = {})
+            VECLIB_FN_NOEXCEPT(fn, std::declval<Type&>(), std::declval<const Type&>(), 0)
+            requires (std::is_default_constructible_v<Type>) {
+        this->nullptr_check("veclib::Array.fold(): The array was moved");
+        for (std::size_t i = 0; i < Size; ++i)
+            fn(data[i], acc, i);
+        return acc;
+    }
+
+    #ifdef VECLIB_EXTRA
+
+    inline constexpr bool all(Function<bool, const Type&> fn) const
+            VECLIB_FN_NOEXCEPT(fn, std::declval<const Type&>()) {
+        this->nullptr_check("veclib::Array.all(): The array was moved");
+        for (std::size_t i = 0; i < Size; ++i)
+            if (!fn(data[i])) return false;
+        return true;
+    }
+    inline constexpr bool all(Function<bool, const Type&, std::size_t> fn) const
+            VECLIB_FN_NOEXCEPT(fn, std::declval<const Type&>(), 0) {
+        this->nullptr_check("veclib::Array.all(): The array was moved");
+        for (std::size_t i = 0; i < Size; ++i)
+            if (!fn(data[i], i)) return false;
+        return true;
+    }
+
+    inline constexpr bool any(Function<bool, const Type&> fn) const
+            VECLIB_FN_NOEXCEPT(fn, std::declval<const Type&>()) {
+        this->nullptr_check("veclib::Array.any(): The array was moved");
+        for (std::size_t i = 0; i < Size; ++i)
+            if (fn(data[i])) return true;
+        return false;
+    }
+    inline constexpr bool any(Function<bool, const Type&, std::size_t> fn) const
+            VECLIB_FN_NOEXCEPT(fn, std::declval<const Type&>(), 0) {
+        this->nullptr_check("veclib::Array.any(): The array was moved");
+        for (std::size_t i = 0; i < Size; ++i)
+            if (fn(data[i], i)) return true;
+        return false;
+    }
+
+    #endif // VECLIB_EXTRA
+};
+
+
+template <std::size_t Size>
+class Bitset;
+
+template <std::size_t Size>
+class BitsetItr;
+
+template <std::size_t Size>
+class BitProxy {
+private:
+
+    Bitset<Size>& parent;
+    std::size_t idx = 0; // This makes it the size of a regular pointer
+
+public:
+
+    using Self = BitProxy<Size>;
+
+    BitProxy() noexcept = delete; // No default constructor due to reference
+    ~BitProxy() noexcept = default;
+
+    BitProxy(Bitset<Size>& p, std::size_t i) noexcept
+        : parent(p), idx(i) {}
+
+    inline constexpr operator bool() const noexcept {
+        return parent.get_at(idx);
+    }
+
+    inline constexpr Self& operator=(bool value) noexcept {
+        parent.set_at(idx, value);
+        return *this;
+    }
+
+    inline constexpr std::size_t index() const noexcept { return idx; }
+
+    inline constexpr BitsetItr<Size> operator&() const noexcept {
+        return BitsetItr<Size>(parent, idx); // Fake pointer-like object
+    }
+};
+
+template <std::size_t Size>
+class BitsetItr {
+private:
+
+    Bitset<Size>& parent;
+    std::size_t index = 0;
+
+public:
+
+    using Self = BitsetItr<Size>;
+
+    BitsetItr() noexcept = delete; // No default constructor due to reference
+    ~BitsetItr() noexcept = default;
+
+    BitsetItr(Bitset<Size>& p, std::size_t i) noexcept
+        : parent(p), index(i) {}
+
+    
+};
+
+template <std::size_t Size>
+class Bitset {
+
+friend BitProxy<Size>;
+friend BitsetItr<Size>;
+
+private:
+
+    std::uint8_t data[VECLIB_BYTESIZE(Size)] = {};
+
+    inline constexpr bool get_at(std::size_t i) const noexcept {
+        return (data[i / CHAR_BIT] & (1 << (i % CHAR_BIT))) != 0;
+    }
+    inline constexpr void set_at(std::size_t i, bool value) noexcept {
+        if (value) data[i / CHAR_BIT] |= 1 << (i % CHAR_BIT);
+        else data[i / CHAR_BIT] &= ~(1 << (i % CHAR_BIT));
+    }
+
+    inline constexpr void bounds_check(std::size_t i, const char* str) const {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(i < Size);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (i >= Size) throw std::out_of_range(str);
+        #endif // VECLIB_ASSERT_NOEXCEPT
+    }
+
+public:
+
+    using Item = BitProxy<Size>;
+    using Self = Bitset<Size>;
+
+    Bitset() noexcept = default;
+    ~Bitset() noexcept = default;
+
+    Bitset(const Array<std::uint8_t, VECLIB_BYTESIZE(Size)>& array) noexcept {
+        for (std::size_t i = 0; i < VECLIB_BYTESIZE(Size); ++i)
+            data[i] = array[i];
+    }
+    inline constexpr Self& operator=(const Array<std::uint8_t, VECLIB_BYTESIZE(Size)>& array) noexcept {
+        for (std::size_t i = 0; i < VECLIB_BYTESIZE(Size); ++i)
+            data[i] = array[i];
+        return *this;
+    }
+
+    // We have no get() method since we aren't really holding any typed data
+    //inline constexpr const std::uint8_t* get() const noexcept { return data; }
+
+    inline consteval std::size_t size() const noexcept { return Size; }
+    inline consteval std::size_t bytesize() const noexcept { return VECLIB_BYTESIZE(Size); }
+
+    inline constexpr Item operator[](std::size_t i) noexcept { return Item(*this, i); }
+    inline constexpr const Item operator[](std::size_t i) const noexcept { return Item(*this, i); }
+
+    inline constexpr Item at(std::size_t i) VECLIB_NOEXCEPT {
+        this->bounds_check(i, "veclib::Bitset.at(): Index is out of bounds");
+        return Item(*this, i);
+    }
+    inline constexpr const Item at(std::size_t i) const VECLIB_NOEXCEPT {
+        this->bounds_check(i, "veclib::Bitset.at(): Index is out of bounds");
+        return Item(*this, i);
+    }
+
+    #ifdef VECLIB_EXTRA
+
+    inline constexpr Item circular_at(std::size_t i) noexcept { return Item(*this, i % Size); }
+    inline constexpr const Item circular_at(std::size_t i) const noexcept { return Item(*this, i % Size); }
+
+    #ifndef VECLIB_NO_OPERATOR_OVERLOADS
+
+    inline constexpr Item operator()(std::size_t i) noexcept { return Item(*this, i % Size); }
+    inline constexpr const Item operator()(std::size_t i) const noexcept { return Item(*this, i % Size); }
+
+    #endif // VECLIB_NO_OPERATOR_OVERLOADS
+
+    #endif // VECLIB_EXTRA
+
+    inline constexpr Array<std::uint8_t, VECLIB_BYTESIZE(Size)> array() noexcept {
+        Array<std::uint8_t, VECLIB_BYTESIZE(Size)> array;
+        for (std::size_t i = 0; i < VECLIB_BYTESIZE(Size); ++i)
+            array[i] = data[i];
+        return array;
+    }
+    inline constexpr const Array<std::uint8_t, VECLIB_BYTESIZE(Size)> array() const noexcept {
+        Array<std::uint8_t, VECLIB_BYTESIZE(Size)> array;
+        for (std::size_t i = 0; i < VECLIB_BYTESIZE(Size); ++i)
+            array[i] = data[i];
+        return array;
+    }
+
+    inline constexpr Self& map(Function<void, BitProxy<Size>> fn)
+            VECLIB_FN_NOEXCEPT(fn, std::declval<BitProxy<Size>>()) {
+        for (std::size_t i = 0; i < Size; ++i)
+            fn(BitProxy<Size>(*this, i));
+        return *this;
+    }
+    inline constexpr Self& map(Function<void, BitProxy<Size>, std::size_t> fn)
+            VECLIB_FN_NOEXCEPT(fn, std::declval<BitProxy<Size>>(), 0) {
+        for (std::size_t i = 0; i < Size; ++i)
+            fn(BitProxy<Size>(*this, i), i);
+        return *this;
+    }
+
+    inline constexpr bool fold(Function<void, bool&, const bool> fn, bool acc = false) const
+            VECLIB_FN_NOEXCEPT(fn, std::declval<bool&>(), false) {
+        for (std::size_t i = 0; i < Size; ++i)
+            fn(acc, this->get_at(i));
+        return *this;
+    }
+    inline constexpr bool fold(Function<void, bool&, const bool, std::size_t> fn, bool acc = false) const
+            VECLIB_FN_NOEXCEPT(fn, std::declval<bool&>(), false, 0) {
+        for (std::size_t i = 0; i < Size; ++i)
+            fn(acc, this->get_at(i), i);
+        return *this;
+    }
+
+    inline constexpr bool on() const noexcept {
+        std::size_t count = 0;
+        for (std::size_t i = 0; i < Size; ++i)
+            if (this->get_at(i)) ++count;
+        return count;
+    }
+
+    inline constexpr bool off() const noexcept {
+        std::size_t count = 0;
+        for (std::size_t i = 0; i < Size; ++i)
+            if (!this->get_at(i)) ++count;
+        return count;
+    }
+
+    inline constexpr bool all() const noexcept {
+        for (std::size_t i = 0; i < Size; ++i)
+            if (!this->get_at(i)) return false;
+        return true;
+    }
+
+    inline constexpr bool none() const noexcept {
+        for (std::size_t i = 0; i < Size; ++i)
+            if (this->get_at(i)) return false;
+        return true;
+    }
+
+    inline constexpr bool any() const noexcept {
+        for (std::size_t i = 0; i < Size; ++i)
+            if (this->get_at(i)) return true;
+        return false;
+    }
+
+    inline constexpr operator bool() const noexcept { return this->any(); }
+
+    inline constexpr bool operator==(const Self& other) const noexcept {
+        for (std::size_t i = 0; i < VECLIB_BYTESIZE(Size); ++i)
+            if (data[i] != other.data[i]) return false;
+        return true;
+    }
+    inline constexpr bool operator!=(const Self& other) const noexcept { return !(*this == other); }
+
+    #ifndef VECLIB_NO_OPERATOR_OVERLOADS
+
+    inline constexpr Self& operator&=(const Self& other) noexcept {
+        for (std::size_t i = 0; i < VECLIB_BYTESIZE(Size); ++i)
+            data[i] &= other.data[i];
+        return *this;
+    }
+
+    inline constexpr Self& operator|=(const Self& other) noexcept {
+        for (std::size_t i = 0; i < VECLIB_BYTESIZE(Size); ++i)
+            data[i] |= other.data[i];
+        return *this;
+    }
+
+    inline constexpr Self& operator^=(const Self& other) noexcept {
+        for (std::size_t i = 0; i < VECLIB_BYTESIZE(Size); ++i)
+            data[i] ^= other.data[i];
+        return *this;
+    }
+
+    inline constexpr Self operator&(const Self& other) const noexcept {
+        Self self = *this;
+        for (std::size_t i = 0; i < VECLIB_BYTESIZE(Size); ++i)
+            self.data[i] &= other.data[i];
+        return self;
+    }
+
+    inline constexpr Self operator|(const Self& other) const noexcept {
+        Self self = *this;
+        for (std::size_t i = 0; i < VECLIB_BYTESIZE(Size); ++i)
+            self.data[i] |= other.data[i];
+        return self;
+    }
+
+    inline constexpr Self operator^(const Self& other) const noexcept {
+        Self self = *this;
+        for (std::size_t i = 0; i < VECLIB_BYTESIZE(Size); ++i)
+            self.data[i] ^= other.data[i];
+        return self;
+    }
+
+    inline constexpr Self operator~() const noexcept {
+        Self self;
+        for (std::size_t i = 0; i < VECLIB_BYTESIZE(Size); ++i)
+            self.data[i] = ~data[i];
+        return self;
+    }
 
     #endif // VECLIB_NO_OPERATOR_OVERLOADS
 };
