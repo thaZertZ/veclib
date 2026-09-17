@@ -403,12 +403,12 @@ public:
     ///        number of elements exceeds this slice's size, only if exceptions are not disabled
     inline constexpr Self first(std::size_t x) VECLIB_NOEXCEPT {
         this->empty_check("veclib::Slice.first(): Slice is empty");
-        this->overflow_check("veclib::Slice.first(): Trying to extract too many first elements");
+        this->overflow_check(x, "veclib::Slice.first(): Trying to extract too many first elements");
         return Self(data, x);
     }
     inline constexpr const Self first(std::size_t x) const VECLIB_NOEXCEPT {
         this->empty_check("veclib::Slice.first(): Slice is empty");
-        this->overflow_check("veclib::Slice.first(): Trying to extract too many first elements");
+        this->overflow_check(x, "veclib::Slice.first(): Trying to extract too many first elements");
         return Self(data, x);
     }
 
@@ -429,12 +429,12 @@ public:
     ///        number of elements exceeds this slice's size, only if exceptions are not disabled
     inline constexpr Self last(std::size_t x) VECLIB_NOEXCEPT {
         this->empty_check("veclib::Slice.last(): Slice is empty");
-        this->overflow_check("veclib::Slice.last(): Trying to extract too many last elements");
+        this->overflow_check(x, "veclib::Slice.last(): Trying to extract too many last elements");
         return Self(data + (count - x), x);
     }
     inline constexpr const Self last(std::size_t x) const VECLIB_NOEXCEPT {
         this->empty_check("veclib::Slice.last(): Slice is empty");
-        this->overflow_check("veclib::Slice.last(): Trying to extract too many last elements");
+        this->overflow_check(x, "veclib::Slice.last(): Trying to extract too many last elements");
         return Self(data + (count - x), x);
     }
 
@@ -453,7 +453,7 @@ public:
         return *this;
     }
     inline constexpr Self& map(Function<void, Type&, std::size_t> fn)
-            VECLIB_NOEXCEPT(fn, std::declval<Type&>(), 0) {
+            VECLIB_FN_NOEXCEPT(fn, std::declval<Type&>(), 0) {
         this->empty_check("veclib::Slice.map(): Slice is empty");
         for (std::size_t i = 0; i < count; ++i)
             fn(data[i], i);
@@ -468,12 +468,12 @@ public:
     /// @param fn The transformation function
     /// @param acc An optional starting value for the accumulated value. By default
     ///            it is assigned a default-constructed value of `Type`
-    inline constexpr Type fold(Function<void, Type&, const Type&> fn, const Type& acc = Type())
+    inline constexpr Type fold(Function<void, Type&, const Type&> fn, Type acc = Type())
             const VECLIB_FN_NOEXCEPT(fn, std::declval<Type&>(), std::declval<const Type&>())
             requires (std::is_default_constructible_v<Type>) {
         this->empty_check("veclib::Slice.fold(): Slice is empty");
         for (std::size_t i = 0; i < count; ++i)
-            fn(acc, data[i]);
+            fn(acc, data[i]); // How can we make `acc` a `const Type&`?!?
         return acc;
     }
     inline constexpr Type fold(Function<void, Type&, const Type&, std::size_t> fn, const Type& acc = Type())
@@ -508,8 +508,6 @@ public:
         return true;
     }
 
-    // There is no more `all_eq` because it was replaced by a scalar overload of `operator==`
-
     /// @brief Return `true` if at least an element in the slice passes a custom check function.
     ///        The check function must return `bool`, accept a `const Type&` parameter
     ///        and optionally an `std::size_t` parameter into which will be passed the
@@ -531,7 +529,17 @@ public:
         return false;
     }
 
-    // There is no more `any_eq` because it was replaced by an overload of `contains`
+    /// @brief Fill the slice with a specified value
+    /// @param value The value to use
+    /// @return A reference to the modified object
+    /// @throw `std::runtime_error` if the slice is empty and exceptions are not disabled
+    inline constexpr Self& fill(const Type& value) noexcept(VECLIB_NOEXCEPT_COPY_ASSIGNABLE(Type) && VECLIB_NOEXCEPT)
+            requires (std::is_copy_assignable_v<Type>) {
+        this->empty_check("veclib::Slice.fill(): Slice is empty");
+        for (std::size_t i = 0; i < count; ++i)
+            data[i] = value;
+        return *this;
+    }
 
     #endif // VECLIB_EXTRA
 

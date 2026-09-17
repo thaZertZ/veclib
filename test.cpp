@@ -38,7 +38,7 @@ int main() {
         ASSERT(slice2.null(), "slice isn't null");
 
         std::cout << "Testing for clearance\n";
-        ASSERT(slice.cleared(), "slice wasn't cleared");
+        ASSERT(slice2.cleared(), "slice wasn't cleared");
     }
 
     std::cout << "Testing unsafe indexing with safe indeces\n";
@@ -50,10 +50,10 @@ int main() {
         EXPECT(slice.at(i), i + 1, "safe indexing with safe indeces");
 
     std::cout << "Testing circular indexing\n";
-    EXPECT(slice[11], 2, "circular indexing");
+    EXPECT(slice.circular_at(11), 2, "circular indexing");
 
     std::cout << "Testing clamped indexing\n";
-    EXPECT(slice[11], 10, "clamped indexing");
+    EXPECT(slice.clamped_at(11), 10, "clamped indexing");
 
     std::cout << "Testing bounds query\n";
     ASSERT(!slice.inside_bounds(10), "bounds query a");
@@ -69,10 +69,10 @@ int main() {
 
         std::cout << "Testing multiple first and last elements\n";
 
-        for (int i = 0; i < first.size(); ++i)
+        for (int i = 0; i < (int)first.size(); ++i)
             EXPECT(first[i], i + 1, "multiple first elements");
 
-        for (int i = 0; i < last.size(); ++i)
+        for (int i = 0; i < (int)last.size(); ++i)
             EXPECT(last[i], i + 8, "multiple last elements");
     }
 
@@ -91,8 +91,44 @@ int main() {
 
     std::cout << "Testing non-indexed mapping\n";
     slice.map([] (int& x) { x *= 2; });
-    for (int i = 0; i < slice.size(); ++i)
+    for (int i = 0; i < (int)slice.size(); ++i)
         EXPECT(slice[i], (i + 1) * 2, "non-indexed mapping");
+    std::cout << "Testing indexed mapping\n";
+    slice.map([] (int& x, std::size_t i) { x = i + 1; });
+    for (int i = 0; i < (int)slice.size(); ++i)
+        EXPECT(slice[i], i + 1, "indexed mapping");
+
+    {
+        std::cout << "Testing folding\n";
+        int folded = slice.fold([] (int& acc, const int& x) { acc += x; });
+        EXPECT(folded, 55, "folding");
+    }
+
+    std::cout << "Testing all element checks\n";
+    ASSERT(slice.all([] (const int& x) { return x != 0; }), "all element checks");
+
+    std::cout << "Testing any element checks\n";
+    ASSERT(slice.any([] (const int& x) { return x % 2 == 0; }), "any element checks");
+
+    {
+        int array2[5];
+        veclib::Slice<int> slice2(array2, 5);
+        slice2.fill(2);
+        std::cout << "Testing fill\n";
+        for (int i = 0; i < (int)slice2.size(); ++i)
+            EXPECT(slice2[i], 2, "fill");
+
+        std::cout << "Testing scalar equality\n";
+        EXPECT(slice2, 2, "scalar equality");
+
+        veclib::Slice<int> slice3 = slice2;
+
+        std::cout << "Testing in-memory equality\n";
+        EXPECT(slice2, slice3, "in-memory equality");
+
+        std::cout << "Testing in-memory inequality\n";
+        ASSERT(slice != slice2, "in-memory inequality");
+    }
 
     std::cout << "Testing self equality\n";
     EXPECT(slice, slice, "self equality");
