@@ -1,6 +1,6 @@
 #include <iostream>
 #define VECLIB_EXTRA
-#include "veclib.hpp"
+#include "../veclib.hpp"
 
 #define EXPECT(expr, res, str) \
     do { \
