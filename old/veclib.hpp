@@ -1726,13 +1726,13 @@ public:
 /// @brief Compile-time enum used for specifying the formula
 ///        applied when reallocating array buffers
 enum class GrowType : std::uint8_t {
-    OneAndHalf, DoubleSize
+    AddHalf, DoubleSize
 };
 
 /// @brief A dynamic array class similar to `std::vector`
 /// @tparam Type The type of the elements held
 /// @tparam Grow The growing formula applied when reallocating the internal buffer
-template <typename Type, GrowType Grow = GrowType::OneAndHalf>
+template <typename Type, GrowType Grow = GrowType::AddHalf>
 class Vector {
 private:
     Type* data = nullptr;
@@ -1753,7 +1753,7 @@ private:
         std::size_t old_count = count;
 
         if (update_cap) {
-            if constexpr (Grow == GrowType::OneAndHalf) // Update capacity accordingly
+            if constexpr (Grow == GrowType::AddHalf) // Update capacity accordingly
                 cap = new_count + new_count / 2;
             else // Grow == GrowType::DoubleSize
                 cap = new_count * 2;

@@ -1,6 +1,5 @@
 
 # Todo
 
-- Add iterators to all data structres
-- Document ***everything***
+- Add reverse iterators to all data structres
 - Write tests for ***everything***
