@@ -15,17 +15,26 @@
 
 #include <initializer_list> // std::initializer_list
 #include <utility> // std::move(), std::forward()
+#include <bit> // std::bit_cast()
 #include <concepts>
 
 #if defined(VECLIB_NONCONSTRUCTOR_NEW) \
  || defined(VECLIB_NONDESTRUCTOR_DELETE) \
  || defined(VECLIB_EXPLICIT_NONDESTRUCTOR_DELETE) \
+ || defined(VECLIB_FULLY_COPYABLE) \
+ || defined(VECLIB_FULLY_MOVABLE) \
+ || defined(VECLIB_FULLY_NOEXCEPT_COPYABLE) \
+ || defined(VECLIB_FULLY_NOEXCEPT_MOVABLE) \
  || defined(VECLIB_NOEXCEPT_DEFAULT_CONSTRUCTIBLE) \
  || defined(VECLIB_NOEXCEPT_DESTRUCTIBLE) \
  || defined(VECLIB_NOEXCEPT_COPY_CONSTRUCTIBLE) \
  || defined(VECLIB_NOEXCEPT_COPY_ASSIGNABLE) \
  || defined(VECLIB_NOEXCEPT_MOVE_CONSTRUCTIBLE) \
- || defined(VECLIB_NOEXCEPT_COPY_ASSIGNABLE) \
+ || defined(VECLIB_NOEXCEPT_MOVE_ASSIGNABLE) \
+ || defined(VECLIB_NOEXCEPT_EQ_CMP) \
+ || defined(VECLIB_VECTOR_DEFAULT_ALLOC) \
+ || defined(VECLIB_TEMP_CHOOSE_MOVE_OR_COPY) \
+ || defined(VECLIB_TEMP_SELECT_NOEXCEPT) \
  || defined(VECLIB_BYTESIZE) \
  || defined(VECLIB_BITSIZE) \
  || defined(VECLIB_COND_NOEXCEPT) \
@@ -40,7 +49,7 @@ namespace veclib {
 
 /// @brief Allocate objects on the heap without calling the
 ///        constructor of their type
-/// @param type The type of elements to allocate
+/// @param type The type of elements to allocate The type to inspect
 /// @param count How many elements to allocate
 #define VECLIB_NONCONSTRUCTOR_NEW(type, count) \
     (reinterpret_cast<type*>(::operator new((count) * sizeof(type))))
@@ -59,43 +68,76 @@ namespace veclib {
 /// @brief Deallocate objects on the heap without calling the
 ///        destructor of the explicitly specified type
 /// @param data A pointer to the elements to deallocate
-/// @param type The type of elements to deallocate
+/// @param type The type of elements to deallocate The type to inspect
 /// @param count The number of elements to deallocate
 #define VECLIB_EXPLICIT_NONDESTRUCTOR_DELETE(data, type, count) \
     (::operator delete((data), (count) * sizeof(type)))
 
+/// @brief Helper macro that checks if a given type can be copy-constructed and copy-assigned
+/// @param type The type to inspect
+#define VECLIB_FULLY_COPYABLE(type) \
+    (std::is_copy_constructible_v<type> && std::is_copy_assignable_v<type>)
+
+/// @brief Helper macro that checks if a given type can be move-constructed and move-assigned
+/// @param type The type to inspect
+#define VECLIB_FULLY_MOVABLE(type) \
+    (std::is_move_constructible_v<type> && std::is_move_assignable_v<type>)
+
+/// @brief Helper macro that checks if all copy operations of a given type are `noexcept`
+/// @param type The type to inspect
+#define VECLIB_FULLY_NOEXCEPT_COPYABLE(type) \
+    (std::is_nothrow_copy_constructible_v<type> && std::is_nothrow_copy_assignable_v<type>)
+
+/// @brief Helper macro that checks if all move operations of a given type are `noexcept`
+/// @param type The type to inspect
+#define VECLIB_FULLY_NOEXCEPT_MOVABLE(type) \
+    (std::is_nothrow_move_constructible_v<type> && std::is_nothrow_move_assignable_v<type>)
+
 /// @brief Expands to a conditional `noexcept` clause that evaluates to
 ///        `noexcept(true)` if a specified type's default constructor
 ///        is `noexcept`
+/// @param type The type to inspect
 #define VECLIB_NOEXCEPT_DEFAULT_CONSTRUCTIBLE(type) \
     noexcept(std::is_nothrow_default_constructible_v<type>)
 
 /// @brief Expands to a conditional `noexcept` clause that evaluates to
 ///        `noexcept(true)` if a specified type's destructor is `noexcept`
+/// @param type The type to inspect
 #define VECLIB_NOEXCEPT_DESTRUCTIBLE(type) \
     noexcept(std::is_nothrow_destructible_v<type>)
 
 /// @brief Expands to a conditional `noexcept` clause that evaluates to
 ///        `noexcept(true)` if a specified type's copy constructor is
 ///        `noexcept`
+/// @param type The type to inspect
 #define VECLIB_NOEXCEPT_COPY_CONSTRUCTIBLE(type) \
     noexcept(std::is_nothrow_copy_constructible_v<type>)
 /// @brief Expands to a conditional `noexcept` clause that evaluates to
 ///        `noexcept(true)` if a specified type's copy assignment
 ///        operator is `noexcept`
+/// @param type The type to inspect
 #define VECLIB_NOEXCEPT_COPY_ASSIGNABLE(type) \
     noexcept(std::is_nothrow_copy_assignable_v<type>)
 
 /// @brief Expands to a conditional `noexcept` clause that evaluates to
 ///        `noexcept(true)` if a specified type's move constructor is
 ///        `noexcept`
+/// @param type The type to inspect
 #define VECLIB_NOEXCEPT_MOVE_CONSTRUCTIBLE(type) \
     noexcept(std::is_nothrow_move_constructible_v<type>)
 /// @brief Expands to a conditional `noexcept` clause that evaluates to
 ///        `noexcept(true)` if a specified type's move assignment
 ///        operator is `noexcept`
+/// @param type The type to inspect
 #define VECLIB_NOEXCEPT_MOVE_ASSIGNABLE(type) \
     noexcept(std::is_nothrow_move_assignable_v<type>)
+
+/// @brief Expands to a conditional `noexcept` clause that evaluates to
+///        `noexcept(true)` if a specified type's equality comparison is
+///        `noexcept`
+/// @param type The type to inspect
+#define VECLIB_NOEXCEPT_EQ_CMP(type) \
+    noexcept(noexcept(std::declval<type>() == std::declval<type>()))
 
 /// @brief Expands to the minimum number of bytes required to fit the
 ///        provided number of bits
@@ -578,6 +620,9 @@ public:
         return *this;
     }
 
+    inline constexpr Self copy() noexcept { Self self = *this; return self; }
+    inline constexpr const Self copy() const noexcept { Self self = *this; return self; }
+
     /// @brief Increase the size of this slice by a specified amount
     /// @param x The number of elements by which the size should be increased
     /// @return A referenced to the modified object
@@ -585,13 +630,6 @@ public:
         this->nullptr_check("veclib::Slice.grow(): Slice isn't referencing anything");
         count += x;
         return *this;
-    }
-    /// @brief Increase the size of this slice by a specified amount on a copy of this slice
-    /// @param x The number of elements by which the size should be increased
-    /// @return A copy of this slice, on which the operation was performed
-    inline constexpr Self grow_copy(const std::size_t x) const VECLIB_NOEXCEPT {
-        Self self = *this;
-        return self.grow(x);
     }
 
     /// @brief Decrease the size of this slice by a specified amount
@@ -605,16 +643,6 @@ public:
         this->underflow_check(x, "veclib::Slice.shrink(): Trying to shrink the slice by too much");
         count -= x;
         return *this;
-    }
-    /// @brief Decrease the size of this slice by a specified amount on a copy of this slice
-    /// @param x The number of elements by which the size should be decreased
-    /// @return A copy of this slice, on which the operation was performed
-    /// @throw `std::runtime_error` if the slice isn't referencing anything,
-    ///        `std::underflow_error` if `x` is trying to shrink
-    ///        the slice by too much, only if exceptions are not disabled
-    inline constexpr Self shrink_copy(const std::size_t x) const VECLIB_NOEXCEPT {
-        Self self = *this;
-        return self.shrink(x);
     }
 
     /// @brief Use a signed parameter to act like `grow()` when it is positive and
@@ -632,17 +660,6 @@ public:
         } else count += x;
         return *this;
     }
-    /// @brief Use a signed parameter to act like `grow()` when it is positive and
-    ///        `shrink` when it is negative on a copy of this slice
-    /// @param x The signed parameter
-    /// @return A copy if this slice, on which the operation was performed
-    /// @throw `std::runtime_error` if the slice isn't referencing anything,
-    ///        `std::underflow_error` if `x` is negative and it is trying to shrink
-    ///        the slice by too much, only if exceptions are not disabled
-    inline constexpr Self delta_copy(const diff_t x) const VECLIB_NOEXCEPT {
-        Self self = *this;
-        return self.delta(x);
-    }
 
     /// @brief Slide the whole view of the slice backward
     /// @param x The number of elements to slide the view by
@@ -654,15 +671,6 @@ public:
         data -= x;
         return *this;
     }
-    /// @brief Slide the whole view of a copy of this slice backward
-    /// @param x The number of elements to slide the view by
-    /// @return A copy of this slice, on which the operation was performed
-    /// @throw `std::runtime_error` if the slice isn't referencing anything and
-    ///        exceptions are not disabled
-    inline constexpr Self slide_backw_copy(const std::size_t x) const VECLIB_NOEXCEPT {
-        Self self = *this;
-        return self.slide_backw(x);
-    }
 
     /// @brief Slide the whole view of the slice forward
     /// @param x The number of elements to slide the view by
@@ -673,15 +681,6 @@ public:
         this->nullptr_check("veclib::Slice.slide_forw(): Slice isn't referencing anything");
         data += x;
         return *this;
-    }
-    /// @brief Slide the whole view of a copy of this slice forward
-    /// @param x The number of elements to slide the view by
-    /// @return A copy of this slice, on which the operation was performed
-    /// @throw `std::runtime_error` if the slice isn't referencing anything and
-    ///        exceptions are not disabled
-    inline constexpr Self slide_forw_copy(const std::size_t x) const VECLIB_NOEXCEPT {
-        Self self = *this;
-        return self.slide_forw(x);
     }
 
     /// @brief Slide the whole view of the slice by using a signed parameter,
@@ -695,17 +694,6 @@ public:
         this->nullptr_check("veclib::Slice.slide(): Slice isn't referencing anything");
         data += x; // Signed arithmetic does its job
         return *this;
-    }
-    /// @brief Slide the whole view of a copy of this slice by using a signed parameter,
-    ///        when it is negative the slide is backward and when it is
-    ///        positive the slide is forward
-    /// @param x The number of elements to slide the view by
-    /// @return A copy of this slice, on which the operation was performed
-    /// @throw `std::runtime_error` if the slice isn't referencing anything and
-    ///        exceptions are not disabled
-    inline constexpr Self slide_copy(const diff_t x) const VECLIB_NOEXCEPT {
-        Self self = *this;
-        return self.slide(x);
     }
 
     /// @brief Trim a specified number of elements from the beginning of the slice
@@ -721,16 +709,6 @@ public:
         count -= x;
         return *this;
     }
-    /// @brief Trim a specified number of elements from the beginning of a copy of this slice
-    /// @param x The number of elements to trim
-    /// @return A copy of this slice, on which the operation was performed
-    /// @throw `std::runtime_error` if the slice is empty, `std::out_of_range` if `x`
-    ///        exceeds the number of elements in this slice, only if exceptions
-    ///        are not disabled
-    inline constexpr Self trim_copy(const std::size_t x) const VECLIB_NOEXCEPT {
-        Self self = *this;
-        return self.trim(x);
-    }
 
     /// @brief Change the view of this slice to reference the specified number of elements
     ///        at its beginning
@@ -743,16 +721,6 @@ public:
         data -= x;
         count += x;
         return *this;
-    }
-    /// @brief Change the view of a copy of this slice to reference the specified number
-    ///        of elements at its beginning
-    /// @param x The number of new elements at the beginning
-    /// @return A copy of this slice, on which the operation was performed
-    /// @throw `std::runtime_error` if the slice isn't referencing anything, only if
-    ///        exceptions are not disabled
-    inline constexpr Self extend_copy(const std::size_t x) const VECLIB_NOEXCEPT {
-        Self self = *this;
-        return self.extend(x);
     }
 
     /// @brief Change the view of this slice with a signed parameter, acting as `trim` if it is positive
@@ -774,17 +742,6 @@ public:
         data += x;
         return *this;
     }
-    /// @brief Change the view of a copy of this slice with a signed parameter, acting as `trim`
-    ///        if it is positive and acting as `extend` if it is negative
-    /// @param x The signed parameter
-    /// @return A copy of this slice, on which the operation was performed
-    /// @throw `std::runtime_error` if the slice isn't referencing anything or if the slice is empty,
-    ///        `std::out_of_range` if `x` is positive and tries to trim too many elements, only
-    ///        if exceptions are not disabled
-    inline constexpr Self nudge_copy(const diff_t x) const VECLIB_NOEXCEPT {
-        Self self = *this;
-        return self.nudge(x);
-    }
 
     /// @brief Trim the first element off this slice (same as running `trim(1)`)
     /// @return A reference to the modified object
@@ -795,13 +752,6 @@ public:
         --count;
         return *this;
     }
-    /// @brief Trim the first element off a copy of this slice (same as running `trim_copy(1)`)
-    /// @return A copy of this slice, on which the operation was performed
-    /// @throw `std::runtime_error` if the slice is empty
-    inline constexpr Self consume_front_copy() const VECLIB_NOEXCEPT {
-        Self self = *this;
-        return self.consume_front();
-    }
 
     /// @brief Trim the last element off this slice (same as running `shrink(1)`)
     /// @return A reference to the modified object
@@ -811,13 +761,6 @@ public:
         --count;
         return *this;
     }
-    /// @brief Trim the last element off a copy of this slice (same as running `shrink(1)`)
-    /// @return A copy of this slice, on which the operation was performed
-    /// @throw `std::runtime_error` if the slice is empty
-    inline constexpr Self consume_back_copy() const VECLIB_NOEXCEPT {
-        Self self = *this;
-        return self.consume_back();
-    }
 
     /// @brief Change the size of this slice
     /// @param x The new size
@@ -825,13 +768,6 @@ public:
     inline constexpr Self& resize(const std::size_t x) noexcept {
         count = x;
         return *this;
-    }
-    /// @brief Change the size of a copy of this slice
-    /// @param x The new size
-    /// @return A copy of this slice, on which the operation was performed
-    inline constexpr Self resize_copy(const std::size_t x) const noexcept {
-        Self self = *this;
-        return self.resize(x);
     }
 
     /// @brief Compare two slices for in-memory equality (check for memory ranges to be the same)
@@ -883,13 +819,6 @@ public:
     /// @param other The other slice
     /// @return A reference to the modified object
     inline constexpr Self& intersect(const Self& other) VECLIB_NOEXCEPT { return *this = ::veclib::intersect(*this, other); }
-    /// @brief Return a new slice referencing the intersection of the memory
-    ///        regions referenced by this slice and another one
-    /// @param other The other slice
-    inline constexpr Self intersect_copy(const Self& other) VECLIB_NOEXCEPT {
-        Self self = *this;
-        return self.intersect(other);
-    }
 
     /// @brief Return a new slice referencing the union of the memory
     ///        regions referenced by two slices
@@ -906,7 +835,7 @@ public:
         const Type* const b_end = b.get() + b.size();
 
         // Check if slices overlap or are adjacent in memory
-        bool overlap = (a.get() <= b_end) && (b.get() <= a_end);
+        const bool overlap = (a.get() <= b_end) && (b.get() <= a_end);
 
         #ifdef VECLIB_ASSERT_NOEXCEPT
         assert(overlap);
@@ -927,15 +856,6 @@ public:
     /// @throw `std::logic_error` if the two slices are not adjacent or do not overlap,
     ///        only if exceptions are not disabled
     inline constexpr Self& join(const Self& other) VECLIB_NOEXCEPT { return *this = ::veclib::join(*this, other); }
-    /// @brief Return a new slice referencing the union of the memory
-    ///        regions referenced by this slice and another one
-    /// @param other The other slice
-    /// @throw `std::logic_error` if the two slices are not adjacent or do not overlap,
-    ///        only if exceptions are not disabled
-    inline constexpr Self join_copy(const Self& other) VECLIB_NOEXCEPT {
-        Self self = *this;
-        return self.join(other);
-    }
 
     /// @brief Check if a provided pointer falls inside the memory region referenced by this slice
     /// @param ptr The pointer to check
@@ -1139,8 +1059,8 @@ public:
         return this->internal_subslice(start, end);
     }
     /// @brief Construct a slice referencing a portion of this slice's memory region
-    /// @param offset The index into this slice at which the new slice should start.
-    ///               Omitting this argument defaults it to `0`
+    /// @param start The index into this slice at which the new slice should start.
+    ///              Omitting this argument defaults it to `0`
     /// @param len The length of the new slice, if it exceeds the maximum size of this
     ///            slice, the value is capped and by default it equals `~0ULL`
     ///            (maximum value for `std::size_t`)
@@ -1191,40 +1111,40 @@ public:
 
     #ifndef VECLIB_NO_OPERATOR_OVERLOADS // We create extra operator overloads unless it's not requested
 
-    /// @brief Operator overload for calling `grow`
+    /// @brief Operator overload for calling `grow(x)`
     inline constexpr Self& operator+=(const std::size_t x) VECLIB_NOEXCEPT { return this->grow(x); }
-    /// @brief Operator overload for calling `grow_copy`
-    inline constexpr Self operator+(const std::size_t x) const VECLIB_NOEXCEPT { return this->grow_copy(x); }
-    /// @brief Operator overload for calling `shrink`
+    /// @brief Operator overload for calling `copy().grow(x)`
+    inline constexpr Self operator+(const std::size_t x) const VECLIB_NOEXCEPT { return this->copy().grow(x); }
+    /// @brief Operator overload for calling `shrink(x)`
     inline constexpr Self& operator-=(const std::size_t x) { return this->shrink(x); }
-    /// @brief Operator overload for calling `shrink_copy`
-    inline constexpr Self operator-(const std::size_t x) const { return this->shrink_copy(x); }
+    /// @brief Operator overload for calling `copy().shrink(x)`
+    inline constexpr Self operator-(const std::size_t x) const { return this->copy().shrink(x); }
 
-    /// @brief Operator overload for calling `slide_backw`
+    /// @brief Operator overload for calling `slide_backw(x)`
     inline constexpr Self& operator<<=(const std::size_t x) VECLIB_NOEXCEPT { return this->slide_backw(x); }
-    /// @brief Operator overload for calling `slide_backw_copy`
-    inline constexpr Self operator<<(const std::size_t x) const VECLIB_NOEXCEPT { return this->slide_backw_copy(x); }
-    /// @brief Operator overload for calling `slide_forw`
+    /// @brief Operator overload for calling `copy().slide_backw(x)`
+    inline constexpr Self operator<<(const std::size_t x) const VECLIB_NOEXCEPT { return this->copy().slide_backw(x); }
+    /// @brief Operator overload for calling `slide_forw(x)`
     inline constexpr Self& operator>>=(const std::size_t x) VECLIB_NOEXCEPT { return this->slide_forw(x); }
-    /// @brief Operator overload for calling `slide_forw_copy`
-    inline constexpr Self operator>>(const std::size_t x) const VECLIB_NOEXCEPT { return this->slide_forw_copy(x); }
+    /// @brief Operator overload for calling `copy().slide_forw(x)`
+    inline constexpr Self operator>>(const std::size_t x) const VECLIB_NOEXCEPT { return this->copy().slide_forw(x); }
 
-    /// @brief Operator overload for calling `consume_front`
+    /// @brief Operator overload for calling `consume_front()`
     inline constexpr Self& operator++() { return this->consume_front(); }
-    /// @brief Operator overload for calling `consume_front_copy`
-    inline constexpr Self operator+() const { return this->consume_front_copy(); }
-    /// @brief Operator overload for calling `consume_back`
+    /// @brief Operator overload for calling `copy().consume_front()`
+    inline constexpr Self operator+() const { return this->copy().consume_front(); }
+    /// @brief Operator overload for calling `consume_back()`
     inline constexpr Self& operator--() { return this->consume_back(); }
-    /// @brief Operator overload for calling `consume_back_copy`
-    inline constexpr Self operator-() const { return this->consume_back_copy(); }
+    /// @brief Operator overload for calling `copy().consume_back()`
+    inline constexpr Self operator-() const { return this->copy().consume_back(); }
 
-    /// @brief Operator overload for calling `intersect`
+    /// @brief Operator overload for calling `intersect(other)`
     inline constexpr Self& operator&=(const Self& other) noexcept { return this->intersect(other); }
-    /// @brief Operator overload for calling `intersect_copy`
+    /// @brief Operator overload for calling `copy().intersect(other)`
     inline constexpr Self operator&(const Self& other) const noexcept { return ::veclib::intersect(*this, other); }
-    /// @brief Operator overload for calling `join`
+    /// @brief Operator overload for calling `join(other)`
     inline constexpr Self& operator|=(const Self& other) VECLIB_NOEXCEPT { return this->join(other); }
-    /// @brief Operator overload for calling `join_copy`
+    /// @brief Operator overload for calling `copy().join(other)`
     inline constexpr Self operator|(const Self& other) const VECLIB_NOEXCEPT { return ::veclib::join(*this, other); }
 
     #endif // VECLIB_NO_OPERATOR_OVERLOADS
@@ -1367,8 +1287,6 @@ public:
     inline consteval std::size_t size() const noexcept { return Size; }
     /// @brief Check if this array is empty
     inline consteval bool empty() const noexcept { return Size == 0; }
-    /// @brief Check if this array has been moved
-    inline constexpr bool moved() const noexcept { return data == nullptr; }
 
     /// @brief Compare two arrays for equality
     inline constexpr bool operator==(const Self& other) const noexcept
@@ -1524,14 +1442,12 @@ public:
     ///        the index of the current element will be passed
     /// @param fn The function to apply
     inline constexpr Self& map(Function<void, Type&> fn) VECLIB_COND_NOEXCEPT(fn, std::declval<Type&>()) {
-        if (this->moved()) return *this;
         // We don't require Size to be non-zero, since the loop will just never run
         for (std::size_t i = 0; i < Size; ++i)
             fn(data[i]);
         return *this;
     }
     inline constexpr Self& map(Function<void, Type&, std::size_t> fn) VECLIB_COND_NOEXCEPT(fn, std::declval<Type&>(), 0) {
-        if (this->moved()) return *this;
         for (std::size_t i = 0; i < Size; ++i)
             fn(data[i], i);
         return *this;
@@ -1548,7 +1464,6 @@ public:
     inline constexpr Type fold(Function<void, Type&, const Type&> fn, Type acc = {})
             VECLIB_COND_NOEXCEPT(fn, std::declval<Type&>(), std::declval<const Type&>())
             requires (std::is_default_constructible_v<Type>) {
-        if (this->moved()) return acc;
         for (std::size_t i = 0; i < Size; ++i)
             fn(acc, data[i]);
         return acc;
@@ -1556,7 +1471,6 @@ public:
     inline constexpr Type fold(Function<void, Type&, const Type&, std::size_t> fn, Type acc = {})
             VECLIB_COND_NOEXCEPT(fn, std::declval<Type&>(), std::declval<const Type&>(), 0)
             requires (std::is_default_constructible_v<Type>) {
-        if (this->moved()) return acc;
         for (std::size_t i = 0; i < Size; ++i)
             fn(acc, data[i], i);
         return acc;
@@ -1571,14 +1485,12 @@ public:
     /// @param fn The check function
     inline constexpr bool all(Function<bool, const Type&> fn) const
             VECLIB_COND_NOEXCEPT(fn, std::declval<const Type&>()) {
-        if (this->moved()) return false;
         for (std::size_t i = 0; i < Size; ++i)
             if (!fn(data[i])) return false;
         return true;
     }
     inline constexpr bool all(Function<bool, const Type&, std::size_t> fn) const
             VECLIB_COND_NOEXCEPT(fn, std::declval<const Type&>(), 0) {
-        if (this->moved()) return false;
         for (std::size_t i = 0; i < Size; ++i)
             if (!fn(data[i], i)) return false;
         return true;
@@ -1591,14 +1503,12 @@ public:
     /// @param fn The check function
     inline constexpr bool any(Function<bool, const Type&> fn) const
             VECLIB_COND_NOEXCEPT(fn, std::declval<const Type&>()) {
-        if (this->moved()) return false;
         for (std::size_t i = 0; i < Size; ++i)
             if (fn(data[i])) return true;
         return false;
     }
     inline constexpr bool any(Function<bool, const Type&, std::size_t> fn) const
             VECLIB_COND_NOEXCEPT(fn, std::declval<const Type&>(), 0) {
-        if (this->moved()) return false;
         for (std::size_t i = 0; i < Size; ++i)
             if (fn(data[i], i)) return true;
         return false;
@@ -2461,25 +2371,32 @@ public:
 
     /// @brief Construct a vector by specifying two pointers that represent the start and
     ///        the end of the range that should be copied into the new vector. If the ending
-    ///        pointer points to a lower address, the elements are copied in the opposide order
+    ///        pointer points to a lower address, the elements are copied in the opposide order.
+    ///        The beginning pointer references the first element to be included, like an iterator,
+    ///        and the ending pointer references the memory right past the last element to
+    ///        be included, again just like an iterator. When copying in reverse order,
     /// @param begin The pointer referencing the first element
-    /// @param end The pointer referencing the last element
+    /// @param end The pointer referencing memory past the last element, like iterators
     /// @throw `std::runtime_error` if any of the pointers are `nullptr`,
     ///        only if exceptions are not disabled
     Vector(const Type* const begin, const Type* const end) VECLIB_NOEXCEPT_COPY_CONSTRUCTIBLE(Type)
-            requires (std::is_copy_constructible_v<Type>) {
+            requires (std::is_copy_constructible_v<Type>) : data(nullptr), count(0), cap(0) {
+        // If both are equal we have no range to copy and there is no reason to throw if they are nullptr
+        if (begin == end) return; // We already initialized with member initializer lists
+
+        // Check if they are nullptr alone
         this->ptr_check(begin, "veclib::Vector(): Begin pointer is nullptr");
         this->ptr_check(end, "veclib::Vector(): End pointer is nullptr");
 
         // Pointer range shenanigans
-        const std::size_t range_size = begin <= end ? (end - begin) + 1 : (begin - end) + 1;
+        const std::size_t range_size = begin <= end ? (end - begin) : (begin - end);
         this->reserve(range_size);
 
         for (std::size_t i = 0; i < range_size; ++i) {
             if (begin <= end)
                 new(&data[i]) Type(begin[i]);
             else
-                new(&data[i]) Type(*(begin - i)); // Does this work?
+                new(&data[i]) Type(*(begin - i));
             ++count; // Increment every time so that if `Type`'s constructor throws we still have a valid size
         }
     }
@@ -2605,17 +2522,6 @@ public:
         this->manual_realloc(new_cap);
         return added;
     }
-    /// @brief Reserve space for a given amount of additional elements.
-    ///        This works essentially like `resize()`, but it only grows
-    ///        the vector and does not construct objects, instead it just
-    ///        allocates enough space for the requested amount
-    /// @param new_slots The number of additional elements to reserve space for
-    /// @return `true` if the internal buffer was reallocated or `false` if not
-    inline constexpr bool grow(const std::size_t new_slots) {
-        if (count + new_slots <= cap) return false;
-        this->manual_realloc(count + new_slots);
-        return true;
-    }
 
     /// @brief Resize the vector to a given size, constructing new elements by
     ///        copying an optionally provided value of `Type`. If the requested size
@@ -2660,6 +2566,40 @@ public:
         const diff_t diff = new_count - count;
         count = new_count;
         return diff;
+    }
+
+    /// @brief Resize the vector to hold a given number of additional elements.
+    ///        This works essentially like `resize()` but with additional space
+    ///        instead of absolute space
+    /// @param new_slots The number of additional elements to add
+    /// @param value An optional value to copy across the new slots
+    /// @return The new size of the vector
+    inline constexpr std::size_t grow(const std::size_t new_slots, const Type& value = {})
+            /* not noexcept because of allocations */ requires (std::is_copy_constructible_v<Type>) {
+        this->resize(count + new_slots, value);
+        return count;
+    }
+    /// @brief Resize the vector to hold a given number of additional elements.
+    ///        This works essentially like `resize()` but with additional space
+    ///        instead of absolute space
+    /// @tparam ...Args The type pack for the constructor arguments
+    /// @param new_slots The number of additional elements to add
+    /// @param args Constructor arguments for the elements in the new slots
+    /// @return The new size of the vector
+    template <typename... Args>
+    inline constexpr std::size_t grow(const std::size_t new_slots, Args&&... args) {
+        this->resize(count + new_slots, std::forward<Args>(args)...);
+        return count;
+    }
+
+    /// @brief Reserve space for a given amount of additional elements.
+    ///        This works essentially like `reserve()` but with additional
+    ///        space instead of absoulute space
+    /// @param new_slots The number of additional elements to reserve space for
+    /// @return The vector's new capacity
+    inline constexpr bool grow_reserve(const std::size_t new_slots) {
+        this->reserve(count + new_slots);
+        return cap;
     }
 
     /// @brief Shrink this vector's allocated buffer to fit the number of constructed
@@ -2713,6 +2653,61 @@ public:
         other.cap ^= cap;
         cap ^= other.cap;
     }
+
+    // Evaluates to `true` if move is chosen and `false` if copy is chosen using this criteria:
+    // - If we only have move we choose that
+    // - If we only have copy we choose that
+    // - If copy can throw we choose move
+    // - If copy is noexcept, move isn't and value is true, we choose copy
+    // - We choose move
+    #define VECLIB_TEMP_CHOOSE_MOVE_OR_COPY(value, type) ( \
+        (VECLIB_FULLY_MOVABLE(type) && !VECLIB_FULLY_COPYABLE(type)) ? true : ( \
+        (!VECLIB_FULLY_MOVABLE(type) && VECLIB_FULLY_COPYABLE(type)) ? false : ( \
+        !VECLIB_FULLY_NOEXCEPT_COPYABLE(type) ? true : ( \
+        (VECLIB_FULLY_NOEXCEPT_COPYABLE(type) && !VECLIB_FULLY_NOEXCEPT_MOVABLE(type) && (value)) ? false : true \
+    ))))
+
+    // Choose the right `noexcept` check and add the destructor being `noexcept` as a requirement,
+    // due to the temporary variable
+    #define VECLIB_TEMP_SELECT_NOEXCEPT(value, type) (( \
+        VECLIB_TEMP_CHOOSE_MOVE_OR_COPY(value, type) ? \
+        VECLIB_FULLY_NOEXCEPT_MOVABLE(type) : VECLIB_FULLY_NOEXCEPT_COPYABLE(type) \
+    ) && std::is_nothrow_destructible_v<type> /* require this because we have our temporary variable being destroyed */)
+
+    /// @brief Reverse this vector in-place. This method requires `Type` to be fully movable or fully copyable
+    ///        (constructor and assignment), and is `noexcept` only if operation chosen between moving or copying is.
+    ///        When available, moving is always preferred, but to instead prefer the `noexcept` method while still
+    ///        giving priority to moving, template this function with `true`. This means that if copying is `noexcept`
+    ///        but moving isn't, copying will be chosen, otherwise moving is always selected.
+    ///        If any of the chosen operations throw, some elements may not be left in a valid state, meaning partially
+    ///        moved, reversed or both
+    /// @tparam UseNoexcept If set to `true`, this makes the function prefer the non-throwing path between copying
+    ///         or moving while always giving priority to moving
+    template <bool UseNoexcept = false>
+    inline constexpr void reverse() VECLIB_NOEXCEPT_IF(VECLIB_TEMP_SELECT_NOEXCEPT(UseNoexcept, Type))
+            // Require full moving or full copying as a last resort
+            requires (VECLIB_FULLY_MOVABLE(Type) || VECLIB_FULLY_COPYABLE(Type)) {
+
+        if (count <= 1) return; // Easy path for empty and one-element vectors
+
+        for (std::size_t left = 0; left < count / 2; ++left) {
+            const std::size_t right = count - 1 - left;
+
+            // Choose the preferred path
+            if constexpr (VECLIB_TEMP_CHOOSE_MOVE_OR_COPY(UseNoexcept, Type)) {
+                Type temp = std::move(data[left]); // This is actually construction
+                data[left] = std::move(data[right]); // These are assignments
+                data[right] = std::move(temp);
+            } else { // Resort to copying
+                Type temp = data[left]; // Again this is construction
+                data[left] = data[right]; // And these are assignments
+                data[right] = temp;
+            }
+        }
+    }
+
+    #undef VECLIB_TEMP_CHOOSE_MOVE_OR_COPY
+    #undef VECLIB_TEMP_SELECT_NOEXCEPT
 
     /// @brief Remove an element given a pointer to it
     /// @param ptr The pointer to the element to remove
@@ -2869,11 +2864,23 @@ public:
 
     /// @brief Check if the vector contains a given element of `Type` anywhere in it
     /// @param value The value to search for
-    inline constexpr bool contains(const Type& value) const requires (std::equality_comparable<Type>) {
+    inline constexpr bool contains(const Type& value) const VECLIB_NOEXCEPT_EQ_CMP(Type)
+            requires (std::equality_comparable<Type>) {
         if (this->empty()) return false;
         for (std::size_t i = 0; i < count; ++i)
             if (data[i] == value) return true;
         return false;
+    }
+
+    /// @brief Count how many occurrences of a value are present in the vector
+    /// @param value The value to search for
+    inline constexpr std::size_t how_many(const Type& value) const VECLIB_NOEXCEPT_EQ_CMP(Type)
+            requires (std::equality_comparable<Type>) {
+        if (this->empty()) return 0;
+        std::size_t num = 0;
+        for (std::size_t i = 0; i < count; ++i)
+            if (data[i] == value) ++num;
+        return num;
     }
 
     /// @brief Apply a custom function to each element of the vector.
@@ -3017,11 +3024,32 @@ public:
 
     /// @brief Fill the array with a specified value
     /// @param value The value to use
-    inline constexpr Self& fill(const Type& value) VECLIB_NOEXCEPT_COPY_ASSIGNABLE(Type)
-            requires (std::is_copy_assignable_v<Type>) {
+    inline constexpr Self& fill(const Type& value) VECLIB_NOEXCEPT_IF(
+            std::is_copy_assignable_v<Type> ? std::is_nothrow_copy_assignable_v<Type> :
+            std::is_nothrow_copy_constructible_v<Type>) // Choose `noexcept`ness based on the chosen copy operation
+            requires (std::is_copy_assignable_v<Type> || std::is_copy_constructible_v<Type>) {
         if (this->empty()) return *this; // Easy route
-        for (std::size_t i = 0; i < count; ++i)
-            data[i] = value;
+
+        for (std::size_t i = 0; i < count; ++i) {
+            if constexpr (std::is_copy_assignable_v<Type>)
+                data[i] = value;
+            else { // Choose destruction and copy construction
+                data[i].~Type();
+                new(&data[i]) Type(value);
+            }
+        }
+        return *this;
+    }
+    /// @brief Fill the array by constructing elements in-place after destroying them
+    /// @tparam ...Args The type parameter packs for the constructor
+    /// @param args The constructor arguments
+    template <typename... Args>
+    inline constexpr Self& fill(Args&&... args) {
+        if (this->empty()) return *this; // Easy route
+        for (std::size_t i = 0; i < count; ++i) {
+            data[i].~Type();
+            new(&data[i]) Type(std::forward<Args>(args)...);
+        }
         return *this;
     }
 
