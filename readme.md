@@ -28,7 +28,7 @@ by defining some macros:
 Some macros are instead used as internal utilities
 but are left defined for others to use too:
 
-- `VECLIB_NONCONSTRUCTOR_NEW(count, type)`: allocate
+- `VECLIB_NONCONSTRUCTOR_NEW(type, count)`: allocate
   `count` elements on the heap without calling the constructor
   of their specified `type`
 - `VECLIB_NONDESTRUCTOR_DELETE(data, count)`: free `count`
@@ -44,7 +44,7 @@ Example use:
 class foo;
 
 int main() {
-    foo* bar = VECLIB_NONCONSTRUCTOR_NEW(1, foo);
+    foo* bar = VECLIB_NONCONSTRUCTOR_NEW(foo, 1);
     // Do something with it
     VECLIB_NONDESTRUCTOR_DELETE(bar, 1);
 }
