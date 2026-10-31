@@ -63,12 +63,14 @@ Here are a few uses of it with various of its methods:
 int main() {
     int array[5] = {1, 2, 3, 4, 5};
     veclib::Slice<int> slice(array, 5); // Provide a pointer and a length
+
     slice[4] = 0; // No bounds checking
-    slice.at() = 5; // With bounds checking
+    slice.at(4) = 5; // With bounds checking
     slice.first() = slice.last(); // Unlike standard containers' front() and back()
     slice.circular_at(5) = 1; // Prevent out-of-bounds access
     slice(9) = 0; // Operator overload for it
     slice.clamped_at(69) = 5; // Clamp the index to the maximum size
+
     const auto s = slice.first(3); // A slice to the first 3 elements
     const auto t = s.last(2); // A slice to the last 2 elements
     bool valid = slice.inside_bounds(42); // Check if an index is valid
@@ -77,8 +79,8 @@ int main() {
     // Sum all elements with an initial accumulator value of 10
     int sum = slice.fold([] (int& acc, const int& x) { acc += x; }, 10);
     for (int& x : slice) x /= 2; // Iterator support of course
-    // Check that every element is less than 42
 
+    // Check that every element is less than 42
     bool all = slice.all([] (const int& x) { return x < 42; });
     // Check if some elements are even
     bool any = slice.any([] (const int& x) { return x % 2 == 0; });
