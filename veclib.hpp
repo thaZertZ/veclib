@@ -25,6 +25,8 @@
  || defined(VECLIB_FULLY_MOVABLE) \
  || defined(VECLIB_FULLY_NOEXCEPT_COPYABLE) \
  || defined(VECLIB_FULLY_NOEXCEPT_MOVABLE) \
+ || defined(VECLIB_COPY_OR_MOVE_CONSTRUCTIBLE) \
+ || defined(VECLIB_COPY_OR_MOVE_ASSIGNABLE) \
  || defined(VECLIB_NOEXCEPT_DEFAULT_CONSTRUCTIBLE) \
  || defined(VECLIB_NOEXCEPT_DESTRUCTIBLE) \
  || defined(VECLIB_NOEXCEPT_COPY_CONSTRUCTIBLE) \
@@ -92,6 +94,16 @@ namespace veclib {
 /// @param type The type to inspect
 #define VECLIB_FULLY_NOEXCEPT_MOVABLE(type) \
     (std::is_nothrow_move_constructible_v<type> && std::is_nothrow_move_assignable_v<type>)
+
+/// @brief Helper macro that checks if a type is copy or move constructible
+/// @param type The type to inspect
+#define VECLIB_COPY_OR_MOVE_CONSTRUCTIBLE(type) \
+    (std::is_copy_constructible_v<type> || std::is_move_constructible_v<type>)
+
+/// @brief Helper macro that checks if a type is copy or move assignable
+/// @param type The type to inspect
+#define VECLIB_COPY_OR_MOVE_ASSIGNABLE(type) \
+    (std::is_copy_assignable_v<type> || std::is_move_assignable_v<type>)
 
 /// @brief Expands to a conditional `noexcept` clause that evaluates to
 ///        `noexcept(true)` if a specified type's default constructor
@@ -239,6 +251,97 @@ template <typename Type, typename Item, typename Index = std::size_t>
 concept Indexable = requires () {
     requires (IndexerType<Index>);
     requires (IndexableViaOperator<Type, Item, Index>) || (IndexableViaAt<Type, Item, Index>);
+};
+
+/// @brief A reverse iterator class :)
+/// @tparam Type The type being iterated over
+template <typename Type>
+class RevItr {
+private:
+
+    /// @brief The pointer to the item being iterated over
+    Type* data;
+
+    void null_check(const char* str) const {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(data && str);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (!data) throw std::runtime_error(str);
+        #endif // VECLIB_ASSERT_NOEXCEPT
+    }
+
+public:
+
+    /// @brief Member type alias for referencing this type
+    using Self = RevItr<Type>;
+    /// @brief Member type alias for referring to the referenced type
+    using Item = Type;
+
+    RevItr() noexcept = delete; // Require initialization
+    /// @brief Default destructor
+    ~RevItr() noexcept = default;
+
+    /// @brief Construct a reverse iterator out of a pointer
+    /// @param ptr The pointer to use
+    RevItr(Type* ptr) noexcept : data(ptr) {} // This may still initialize to nullptr but it's safer
+
+    /// @brief Assign this reverse iterator to point elsewhere
+    /// @param ptr The pointer to use
+    inline constexpr Self& operator=(Type* ptr) noexcept { data = ptr; return *this; }
+
+    /// @brief Return a const version of the internal pointer
+    inline constexpr const Type* get() const noexcept { return data; }
+    /// @brief Implicitly cast this iterator to check if the internal pointer is `nullptr`
+    inline constexpr operator bool() const noexcept { return data != nullptr; }
+    /// @brief Compare this iterator for equality against another one
+    /// @param other The other iterator
+    inline constexpr bool operator==(const Self other) const noexcept { return data == other.data; }
+    /// @brief Compare this iterator for equality against a pointer
+    /// @param ptr The pointer to compare
+    inline constexpr bool operator==(const Type* const ptr) const noexcept { return data == ptr; }
+    /// @brief Compare this iterator for inequality against another one
+    /// @param other The other iterator
+    inline constexpr bool operator!=(const Self other) const noexcept { return data != other.data; }
+    /// @brief Compare this iterator for inequality against a pointer
+    /// @param ptr THe pointer compare
+    inline constexpr bool operator!=(const Type* const ptr) const noexcept { return data != ptr; }
+
+    /// @brief Prefix increment
+    inline constexpr Self& operator++() noexcept { --data; return *this; }
+    /// @brief Postfix increment
+    inline constexpr Self& operator++(int) noexcept { Self self = *this; ++*this; return self; }
+    /// @brief Prefix decrement
+    inline constexpr Self& operator--() noexcept { ++data; return *this; }
+    /// @brief Postfix decrement
+    inline constexpr Self& operator--(int) noexcept { Self self = *this; --*this; return self; }
+
+    /// @brief Compound addition
+    inline constexpr Self& operator+=(const std::size_t x) noexcept { data -= x; return *this; }
+    /// @brief Addition
+    inline constexpr Self operator+(const std::size_t x) const noexcept { return Self(data - x); }
+    /// @brief Compound subtraction
+    inline constexpr Self& operator-=(const std::size_t x) noexcept { data += x; return *this; }
+    /// @brief Subtraction
+    inline constexpr Self operator-(const std::size_t x) const noexcept { return Self(data + x); }
+
+    /// @brief Pointer-like dereference
+    /// @throw `std::runtime_error` if the iterator isn't referencing anything anything,
+    ///        only if exceptions are not disabled
+    inline constexpr Type& operator*() VECLIB_NOEXCEPT {
+        this->null_check("veclib::RevItr.operator*(): The iterator isn't referencing anything");
+        return *data;
+    }
+    inline constexpr const Type& operator*() const VECLIB_NOEXCEPT {
+        this->null_check("veclib::RevItr.operator*(): The iterator isn't referencing anything");
+        return *data;
+    }
+
+    /// @brief Pointer-like member access
+    inline constexpr Type* operator->() noexcept { return data; }
+    inline constexpr const Type* operator->() const noexcept { return data; }
+    /// @brief Implicitly cast this iterator to a pointer of the referenced type
+    inline constexpr operator Type*() const noexcept { return data; }
+
 };
 
 template <typename Type>
@@ -1155,6 +1258,13 @@ public:
     /// @brief It's an iterator what do you expect -_-
     inline constexpr Type* end() noexcept { return data ? data + count : nullptr; }
     inline constexpr const Type* end() const noexcept { return data ? data + count : nullptr; }
+
+    /// @brief Reverse begin iterator
+    inline constexpr RevItr<Type> rbegin() noexcept { return data ? RevItr<Type>(data + count - 1) : RevItr<Type>(nullptr) /* sorry */; }
+    inline constexpr const RevItr<Type> rbegin() const noexcept { return data ? RevItr<Type>(data + count - 1) : RevItr<Type>(nullptr); }
+    /// @brief Reverse end iterator
+    inline constexpr RevItr<Type> rend() noexcept { return data ? RevItr<Type>(data - 1) : RevItr<Type>(nullptr); }
+    inline constexpr const RevItr<Type> rend() const noexcept { return data ? RevItr<Type>(data - 1) : RevItr<Type>(nullptr); }
 };
 
 /// @brief Alias for a `Slice` object referencing `const` memory
@@ -1549,6 +1659,13 @@ public:
     /// @brief It's an iterator what do you expect -_-
     inline constexpr Type* end() noexcept { return data + Size; }
     inline constexpr const Type* end() const noexcept { return data + Size; }
+
+    /// @brief Reverse begin iterator
+    inline constexpr RevItr<Type> rbegin() noexcept { return RevItr<Type>(data + Size - 1); }
+    inline constexpr const RevItr<Type> rbegin() const noexcept { return RevItr<Type>(data + Size - 1); }
+    /// @brief Reverse end iterator
+    inline constexpr RevItr<Type> rend() noexcept { return RevItr<Type>(data - 1); }
+    inline constexpr const RevItr<Type> rend() const noexcept { return RevItr<Type>(data - 1); }
 };
 
 
@@ -1657,6 +1774,78 @@ public:
     /// @brief Pointer-like dereference, returning a `BitProxy` object
     inline constexpr BitProxy<Size> operator*() noexcept { return BitProxy<Size>(parent, index); }
     inline constexpr const BitProxy<Size> operator*() const noexcept { return BitProxy<Size>(parent, index); }
+
+    /// @brief Compare two iterator objects for equality
+    /// @param other The other iterator
+    inline constexpr bool operator==(const Self& other) const noexcept { return &parent == &other.parent && index == other.index; }
+    /// @brief Compare two iterator objects for inequality
+    /// @param other The other iterator
+    inline constexpr bool operator!=(const Self& other) const noexcept { return !(*this == other); }
+    /// @brief Implicitly cast this iterator object to check if the reference to the parent bitset is dangling or if the bit
+    ///        index into the bitset is less than the size of the bitset
+    inline constexpr operator bool() const noexcept { return std::bit_cast<Bitset<Size>*>(parent) != nullptr && index < Size; }
+};
+/// @brief Another proxy object for the `Bitset` class, functioning as a pointer
+/// @tparam Size The `Size` of the bitset
+template <std::size_t Size>
+class BitsetRevItr {
+private:
+
+    /// @brief A reference to the parent bitset
+    Bitset<Size>& parent;
+    /// @brief The biased index into the bitset. `0` represents `-1`, allowing ending iterators
+    std::size_t index = 0;
+
+    void end_check(const char* str) const {
+        #ifdef VECLIB_ASSERT_NOEXCEPT
+        assert(index != 0 && str);
+        #else // VECLIB_ASSERT_NOEXCEPT
+        if (index == 0) throw std::runtime_error(str);
+        #endif // VECLIB_ASSERT_NOEXCEPT
+    }
+
+public:
+
+    /// @brief Member type alias for referencing this type
+    using Self = BitsetRevItr<Size>;
+
+    BitsetRevItr() noexcept = delete; // No default constructor due to reference
+    /// @brief Default destructor
+    ~BitsetRevItr() noexcept = default;
+
+    /// @brief Construct this object with a reference to the parent `Bitset` and a bit index into it
+    /// @param p The parent `Bitset`
+    /// @param i The biased index into the bitset. This allows `0` to encode an ending iterator
+    BitsetRevItr(Bitset<Size>& p, std::size_t i) noexcept : parent(p), index(i) {}
+
+    /// @brief Pointer-like prefix increment
+    inline constexpr Self& operator++() noexcept { --index; return *this; }
+    /// @brief Pointer-like postfix increment
+    inline constexpr Self operator++(int) noexcept { Self self = *this; ++*this; return self; }
+    /// @brief Pointer-like prefix decrement
+    inline constexpr Self& operator--() noexcept { ++index; return *this; }
+    /// @brief Pointer-like postfix decrement
+    inline constexpr Self operator--(int) noexcept { Self self = *this; --*this; return self; }
+
+    /// @brief Pointer-like compound addition
+    inline constexpr Self& operator+=(const std::size_t x) noexcept { index -= x; return *this; }
+    /// @brief Pointer-like addition
+    inline constexpr Self operator+(const std::size_t x) noexcept { return Self(parent, index - x); }
+    /// @brief Pointer-like compound subtraction
+    inline constexpr Self& operator-=(const std::size_t x) noexcept { index += x; return *this; }
+    /// @brief Pointer-like subtraction
+    inline constexpr Self operator-(const std::size_t x) noexcept { return Self(parent, index + x); }
+
+    /// @brief Pointer-like dereference, returning a `BitProxy` object
+    /// @throw `std::runtime_error` if the iterator is the ending iterator, only if exceptions are not disabled
+    inline constexpr BitProxy<Size> operator*() VECLIB_NOEXCEPT {
+        this->end_check("veclib::BitsetRevItr.operator*(): Can't dereference ending iterator");
+        return BitProxy<Size>(parent, index);
+    }
+    inline constexpr const BitProxy<Size> operator*() const VECLIB_NOEXCEPT {
+        this->end_check("veclib::BitsetRevItr.operator*(): Can't dereference ending iterator");
+        return BitProxy<Size>(parent, index);
+    }
 
     /// @brief Compare two iterator objects for equality
     /// @param other The other iterator
@@ -2131,6 +2320,13 @@ public:
     /// @brief It's an iterator what do you expect -_-
     inline constexpr BitsetItr<Size> end() noexcept { return BitsetItr<Size>(*this, Size); }
     inline constexpr const BitsetItr<Size> end() const noexcept { return BitsetItr<Size>(*this, Size); }
+
+    /// @brief Reverse begin iterator
+    inline constexpr BitsetRevItr<Size> rbegin() noexcept { return BitsetRevItr(*this, Size) /* this is the beginning, when dereferenced it is `Size - 1` */; }
+    inline constexpr const BitsetRevItr<Size> rbegin() const noexcept { return BitsetRevItr(*this, Size); }
+    /// @brief Reverse end iterator
+    inline constexpr BitsetRevItr<Size> rend() noexcept { return BitsetRevItr(*this, 0) /* this encodes `-1`, aka the ending iterator */; }
+    inline constexpr const BitsetRevItr<Size> rend() const noexcept { return BitsetRevItr(*this, 0); }
 };
 
 
@@ -2319,6 +2515,31 @@ private:
         count = new_count; // Update our size
     }
 
+    inline constexpr std::size_t internal_remove_if(Function<bool, const Type&, std::size_t, std::size_t> fn)
+            VECLIB_COND_NOEXCEPT(fn, std::declval<const Type&>(), 0, 0)
+            requires (std::is_move_assignable_v<Type> || std::is_copy_assignable_v<Type>) {
+        std::size_t write = 0; // The position at which to shift elements
+
+        for (std::size_t i = 0; i < count; ++i) {
+            if (fn(data[i], i, write)) continue; // If we need to remove, `write` is kept the same
+
+            if (write != i) { // If it's not the same we need to rearrange elements
+                if constexpr (std::is_move_assignable_v<Type>)
+                    data[write] = std::move(data[i]);
+                else
+                    data[write] = data[i]; // Resort to copying
+            }
+            ++write;
+        }
+
+        for (std::size_t i = write; i < count; ++i)
+            data[i].~Type(); // Destroy the remaining objects we moved/copied that should be removed
+
+        const std::size_t old_count = count;
+        count = write; // Update size
+        return old_count - write; // Number of removed elements
+    }
+
     inline constexpr Slice<Type> internal_slice(const std::size_t start, const std::size_t end) VECLIB_NOEXCEPT {
         this->empty_check("veclib::Vector.slice(): The vector is empty or has been moved");
         this->range_check(start, "veclib::Vector.slice(): Starting index exceeds vector size");
@@ -2403,7 +2624,7 @@ public:
 
     /// @brief Construct a vector out of an initializer list
     /// @param args The initializer list
-    Vector(const std::initializer_list<Type>& args) VECLIB_NOEXCEPT_COPY_CONSTRUCTIBLE(Type)
+    Vector(const std::initializer_list<Type>& args)
             requires (std::is_copy_constructible_v<Type>) {
         this->reserve(args.size());
         count = cap; // We are full
@@ -2413,7 +2634,6 @@ public:
     /// @brief Assign this vector to an initializer list
     /// @param args The initializer list
     inline constexpr Self& operator=(const std::initializer_list<Type>& args)
-            VECLIB_NOEXCEPT_COPY_CONSTRUCTIBLE(Type)
             requires (std::is_copy_constructible_v<Type>) {
         this->clear();
         this->reserve(args.size());
@@ -2422,6 +2642,26 @@ public:
             new(&data[i]) Type(args.begin()[i]);
         return *this;
     }
+
+    /// @brief Construct a vector out of an `Array` object by copying it
+    /// @tparam Size The `Size` of the array
+    /// @param array The array to copy
+    template <std::size_t Size>
+    Vector(const Array<Type, Size>& array) requires (std::is_copy_constructible_v<Type>)
+            : data(nullptr), count(0), cap(0) {
+        this->reserve(Size); // Use this so we don't have to provide a value
+        for (std::size_t i = 0; i < Size; ++i)
+            new(&data[i]) Type(array[i]); // Copy construct
+    } // Maybe make an assignment too?
+
+    /// @brief Construct a vector out of a `Slice` object by copying it
+    /// @param slice The slice to copy
+    Vector(const Slice<Type>& slice) requires (std::is_copy_constructible_v<Type>) : data(nullptr), count(0), cap(0) {
+        if (slice.empty()) return;
+        this->reserve(slice.size());
+        for (std::size_t i = 0; i < count; ++i)
+            new(&data[i]) Type(slice[i]);
+    } // Maybe for this too?
 
     /// @brief Copy constructor
     /// @param other The vector to copy
@@ -3289,7 +3529,7 @@ public:
         for (std::size_t i = 0; i < other.count; ++i)
             new(&data[i + count]) Type(other[i]); // Copy everything
         count += other.count;
-        return other.count; // New size
+        return other.count;
     }
     /// @brief Append the contents of another vector to this vector by moving them
     /// @param other The vector to append
@@ -3332,6 +3572,396 @@ public:
         return Size;
     }
 
+    /// @brief Append the contents of a slice to this vector by copying them
+    /// @param slice The slice to append
+    /// @return The number of newly added elements, equal to the size of the appended slice
+    inline constexpr std::size_t append(const Slice<Type>& slice) requires (std::is_copy_constructible_v<Type>) {
+        if (slice.cleared()) return count; // Easy path
+        std::size_t size = slice.size();
+        this->reserve(count + size);
+        for (std::size_t i = 0; i < size; ++i)
+            new(&data[i + count]) Type(slice[i]); // Copy everything
+        count += size;
+        return size;
+    }
+    /// @brief Append the contents of a slice to this vector by moving them and then setting the slice's size to `0`
+    /// @param slice The slice to append
+    /// @return The number of newly added elements, equal to the size of the appended slice
+    inline constexpr std::size_t append(Slice<Type>&& slice) requires (std::is_move_constructible_v<Type>) {
+        if (slice.cleared()) return count; // Easy path
+        std::size_t size = slice.size();
+        this->reserve(count + size);
+        for (std::size_t i = 0; i < size; ++i)
+            new(&data[i + count]) Type(std::move(slice[i]));
+        count += size;
+        slice.resize(0);
+        return size;
+    }
+
+    /// @brief Prepend the contents of another vector to this vector by copying them
+    /// @param other The vector to prepend
+    /// @return The number of newly added elements, equal to the size of the prepended vector
+    inline constexpr std::size_t prepend(const Self& other) requires (std::is_copy_constructible_v<Type>) {
+        if (other.empty()) return count; // Easy path
+        this->slide_forw(0, other.count); // Make space
+        for (std::size_t i = 0; i < other.count; ++i)
+            new(&data[i]) Type(other[i]); // Copy everything
+        count += other.count;
+        return other.count;
+    }
+    /// @brief Prepend the contents of another vector to this vector by moving them
+    /// @param other The vector to prepend
+    /// @return The number of newly added elements, equal to the size of the prepended vector
+    inline constexpr std::size_t prepend(Self&& other) requires (std::is_move_constructible_v<Type>) {
+        if (other.empty()) return count; // Easy path
+        this->slide_forw(0, other.count);
+        for (std::size_t i = 0; i < other.count; ++i)
+            new(&data[i]) Type(std::move(other[i]));
+        count += other.count;
+        std::size_t old_count = other.count;
+        other.clear(); // We moved it now
+        return old_count;
+    }
+
+    /// @brief Prepend the contents of an `Array` object by copying them
+    /// @tparam Size The `Size` of the array
+    /// @param array The array to prepend
+    /// @return The number of newly added elements, equal to the size of the prepended array
+    template <std::size_t Size>
+    inline constexpr std::size_t prepend(const Array<Type, Size>& array) requires (std::is_copy_constructible_v<Type>) {
+        if (array.empty()) return count;
+        this->slide_forw(0, Size);
+        for (std::size_t i = 0; i < Size; ++i)
+            new(&data[i]) Type(array[i]);
+        count += Size;
+        return Size;
+    }
+    /// @brief Prepend the contents of an `Array` object by moving them
+    /// @tparam Size The `Size` of the array
+    /// @param array The array to prepend
+    /// @return The number of newly added elements, equal to the size of the prepended array
+    template <std::size_t Size>
+    inline constexpr std::size_t prepend(Array<Type, Size>&& array) requires (std::is_move_constructible_v<Type>) {
+        if (array.empty()) return count;
+        this->slide_forw(0, Size);
+        for (std::size_t i = 0; i < Size; ++i)
+            new(&data[i]) Type(std::move(array[i]));
+        count += Size;
+        return Size;
+    }
+
+    /// @brief Prepend the contents of a slice to this vector by copying them
+    /// @param slice The slice to prepend
+    /// @return The number of newly added elements, equal to the size of the prepended slice
+    inline constexpr std::size_t prepend(const Slice<Type>& slice) requires (std::is_copy_constructible_v<Type>) {
+        if (slice.cleared()) return count; // Easy path
+        std::size_t size = slice.size();
+        this->slide_forw(0, size);
+        for (std::size_t i = 0; i < size; ++i)
+            new(&data[i]) Type(slice[i]);
+        count += size;
+        return size;
+    }
+    /// @brief Prepend the contents of a slice to this vector by moving them and then
+    ///        setting the slice's size to `0`
+    /// @param slice The slice to prepend
+    /// @return The number of newly added elements, equal to the size of the prepended slice
+    inline constexpr std::size_t prepend(Slice<Type>&& slice) requires (std::is_move_constructible_v<Type>) {
+        if (slice.cleared()) return count; // Easy path
+        std::size_t size = slice.size();
+        this->slide_forw(0, size);
+        for (std::size_t i = 0; i < size; ++i)
+            new(&data[i]) Type(std::move(slice[i]));
+        count += size;
+        slice.resize(0);
+        return size;
+    }
+
+    /// @brief Insert the contents of another vector at a given index in this vector by copying them
+    /// @param index The index at which to insert elements
+    /// @param other The vector to insert
+    /// @return The number of newly added elements, equal to the size of the inserted vector
+    inline constexpr std::size_t insert(const std::size_t index, const Self& other) requires (std::is_copy_constructible_v<Type>) {
+        if (other.empty()) return count; // Easy path
+        this->slide_forw(index, other.count); // Make space
+        for (std::size_t i = 0; i < other.count; ++i)
+            new(&data[i + index]) Type(other[i]); // Copy everything
+        count += other.count;
+        return other.count;
+    }
+    /// @brief Insert the contents of another vector at a given index in this vector by moving them
+    /// @param index The index at which to insert elements
+    /// @param other The vector to insert
+    /// @return The number of newly added elements, equal to the size of the inserted vector
+    inline constexpr std::size_t insert(const std::size_t index, Self&& other) requires (std::is_move_constructible_v<Type>) {
+        if (other.empty()) return count; // Easy path
+        this->slide_forw(index, other.count);
+        for (std::size_t i = 0; i < other.count; ++i)
+            new(&data[i + index]) Type(std::move(other[i]));
+        count += other.count;
+        std::size_t old_count = other.count;
+        other.clear(); // We moved it now
+        return old_count;
+    }
+
+    /// @brief Insert the contents of an `Array` object at a given index in this vector by copying them
+    /// @tparam Size The `Size` of the array
+    /// @param index The index at which to insert elements
+    /// @param array The array to insert
+    /// @return The number of newly added elements, equal to the size of the inserted array
+    template <std::size_t Size>
+    inline constexpr std::size_t insert(const std::size_t index, const Array<Type, Size>& array) requires (std::is_copy_constructible_v<Type>) {
+        if (array.empty()) return count;
+        this->slide_forw(index, Size);
+        for (std::size_t i = 0; i < Size; ++i)
+            new(&data[i + index]) Type(array[i]);
+        count += Size;
+        return Size;
+    }
+    /// @brief Insert the contents of an `Array` object at a given index in this vector by moving them
+    /// @tparam Size The `Size` of the array
+    /// @param index The index at which to insert elements
+    /// @param array The array to insert
+    /// @return The number of newly added elements, equal to the size of the inserted array
+    template <std::size_t Size>
+    inline constexpr std::size_t insert(const std::size_t index, Array<Type, Size>&& array) requires (std::is_move_constructible_v<Type>) {
+        if (array.empty()) return count;
+        this->slide_forw(index, Size);
+        for (std::size_t i = 0; i < Size; ++i)
+            new(&data[i + index]) Type(std::move(array[i]));
+        count += Size;
+        return Size;
+    }
+
+    /// @brief Insert the contents of a slice at a given index in this vector by copying them
+    /// @param index The index at which to insert elements
+    /// @param slice The slice to insert
+    /// @return The number of newly added elements, equal to the size of the inserted slice
+    inline constexpr std::size_t insert(const std::size_t index, const Slice<Type>& slice) requires (std::is_copy_constructible_v<Type>) {
+        if (slice.cleared()) return count; // Easy path
+        std::size_t size = slice.size();
+        this->slide_forw(index, size);
+        for (std::size_t i = 0; i < size; ++i)
+            new(&data[i + index]) Type(slice[i]);
+        count += size;
+        return size;
+    }
+    /// @brief Insert the contents of a slice at a given index in this vector by moving them
+    ///        and then setting the slice's size to `0`
+    /// @param index The index at which to insert elements
+    /// @param slice The slice to insert
+    /// @return The number of newly added elements, equal to the size of the inserted slice
+    inline constexpr std::size_t insert(const std::size_t index, Slice<Type>&& slice) requires (std::is_move_constructible_v<Type>) {
+        if (slice.cleared()) return count; // Easy path
+        std::size_t size = slice.size();
+        this->slide_forw(index, size);
+        for (std::size_t i = 0; i < size; ++i)
+            new(&data[i + index]) Type(std::move(slice[i]));
+        count += size;
+        slice.resize(0);
+        return size;
+    }
+
+    /// @brief Remove elements from the vector if they satisfy a condition determined by a
+    ///        custom function. The function must return `bool` and accept a `const Type&`
+    ///        parameter into which will be passed the current element, and it may also accept
+    ///        an `std::size_t` parameter into which will be passed the index of the current
+    ///        element. The element is marked for removal if the function returns `true`
+    /// @param fn The custom function
+    /// @return The number of removed elements
+    inline constexpr std::size_t remove_if(Function<bool, const Type&> fn)
+            requires (std::is_move_assignable_v<Type> || std::is_copy_assignable_v<Type>) {
+        return this->internal_remove_if([fn](const Type& x, std::size_t, std::size_t) {
+            return fn(x); // Just call the function and discard other lambda arguments
+        });
+    }
+    inline constexpr std::size_t remove_if(Function<bool, const Type&, std::size_t> fn)
+            requires (std::is_move_assignable_v<Type> || std::is_copy_assignable_v<Type>) {
+        return this->internal_remove_if([fn](const Type& x, std::size_t index, std::size_t) {
+            return fn(x, index);
+        });
+    }
+
+    /// @brief Find the first element that matches a custom function. The function must return
+    ///        `bool` and accept a `const Type&` parameter into which will be passed the
+    ///        current element, optionally accepting an `std::size_t` into which will be passed
+    ///        the index of the current element. If the function returns `true` the element is
+    ///        marked as found
+    /// @param fn The custom function
+    /// @return A pointer that is `nullptr` if the element was not found, or that otherwise
+    ///         points to the found element
+    inline constexpr Type* find_if(Function<bool, const Type&> fn)
+            VECLIB_COND_NOEXCEPT(fn, std::declval<const Type&>) {
+        Type* found = nullptr;
+        if (this->empty()) return found;
+        for (std::size_t i = 0; i < count; ++i)
+            if (fn(data[i])) { found = data + i; break; } // First occurrence
+        return found;
+    }
+    inline constexpr const Type* find_if(Function<bool, const Type&> fn) const
+            VECLIB_COND_NOEXCEPT(fn, std::declval<const Type&>) {
+        const Type* found = nullptr;
+        if (this->empty()) return found;
+        for (std::size_t i = 0; i < count; ++i)
+            if (fn(data[i])) { found = data + i; break; } // First occurrence
+        return found;
+    }
+    inline constexpr Type* find_if(Function<bool, const Type&, std::size_t> fn)
+            VECLIB_COND_NOEXCEPT(fn, std::declval<const Type&>, 0) {
+        Type* found = nullptr;
+        if (this->empty()) return found;
+        for (std::size_t i = 0; i < count; ++i)
+            if (fn(data[i], i)) { found = data + i; break; } // First occurrence
+        return found;
+    }
+    inline constexpr const Type* find_if(Function<bool, const Type&, std::size_t> fn) const
+            VECLIB_COND_NOEXCEPT(fn, std::declval<const Type&>, 0) {
+        const Type* found = nullptr;
+        if (this->empty()) return found;
+        for (std::size_t i = 0; i < count; ++i)
+            if (fn(data[i], i)) { found = data + i; break; } // First occurrence
+        return found;
+    }
+
+    /// @brief Extract a portion of this vector, returning the specified range and
+    ///        removing it from this vector
+    /// @param index The index at which to start the extraction. Defaults to `0`
+    /// @param len The number of elements to extract. If it is too large, it is
+    ///            capped at the maximum value available. Defaults to `~0ULL`
+    /// @return The extracted range
+    inline constexpr Self extract(const std::size_t index = 0, std::size_t len = ~0ULL)
+            requires (VECLIB_COPY_OR_MOVE_CONSTRUCTIBLE(Type) && std::is_move_constructible_v<Type>) {
+        this->bounds_check(index, "veclib::Vector.extract(): Index is out of bounds");
+        if (len > count - index) len = count - index; // Cap the length
+        Self range;
+        range.reserve(len); // Not resizing so we don't require a value
+        for (std::size_t i = 0; i < len; ++i) { // Construct in place
+            if constexpr (std::is_move_constructible_v<Type>)
+                new(&range.data[i]) Type(std::move(data[index + i]));
+            else
+                new(&range.data[i]) Type(data[index + i]); // Resort to copying
+            // Don't destroy yet
+        }
+        range.count = len; // Update the size
+        this->slide_backw(index, len); // We now destroy and update ourselves
+        return range;
+    }
+
+    /// @brief Extract a portion of this vector, copying and returning the specified range.
+    ///        Unlike `extract()`, this doesn't remove the specified range from the vector
+    /// @param index The index at which to start the extraction. Defaults to `0`
+    /// @param len The number of elements to extract. If it is too large, it is
+    ///            capped at the maximum value available. Defaults to `~0ULL`
+    /// @return The extracted range
+    inline constexpr Self extract_copy(const std::size_t index = 0, std::size_t len = ~0ULL)
+            requires (std::is_copy_constructible_v<Type>) {
+        this->bounds_check(index, "veclib::Vector.extract_copy(): Index is out of bounds");
+        if (len > count - index) len = count - index; // Cap the length
+        Self range;
+        range.reserve(len); // Not resizing so we don't require a value
+        for (std::size_t i = 0; i < len; ++i) // Don't destrot at all
+            new(&range.data[i]) Type(data[index + i]); // Construct in place
+        range.count = len; // Update the size
+        return range;
+    }
+
+    /// @brief An alias wrapper around calling `extract()` without the last argument,
+    ///        splitting this vector in two parts. The elements before the given index will be
+    ///        kept in this vector, while the rest will be returned under a new vector.
+    ///        In the case of the index being equal to the vector's size (one past the index
+    ///        of the last element) an empty vector will be returned and this one won't be
+    ///        modified
+    /// @param index The index at which to split
+    /// @return A vector containing the elements after the provided index
+    inline constexpr Self split_at(const std::size_t index) requires (VECLIB_COPY_OR_MOVE_CONSTRUCTIBLE(Type) && std::is_move_constructible_v<Type>) {
+        this->range_check(index, "veclib::Vector.split_at(): Index is out of bounds");
+        if (index == count) return Self(); // A cleared vector lol
+        return this->extract(index);
+    }
+
+    #ifdef VECLIB_EXTRA
+
+    /// @brief Rotate elements to the left
+    /// @param x The number of slots to rotate by
+    inline constexpr void rotl(const std::size_t x) requires (std::is_move_constructible_v<Type>) {
+        if (count <= 1 || x == 0) return; // Either empty, one element or no rotation
+        Self left = this->extract(0, x); // So simple
+        this->append(std::move(left));
+    }
+    /// @brief Rotate elements to the right
+    /// @param x The number of slots to rotate by
+    inline constexpr void rotr(const std::size_t x) requires (std::is_move_constructible_v<Type>) {
+        if (count <= 1 || x == 0) return;
+        Self right = this->extract(count - 1 - x, x);
+        this->prepend(right); // Sooo simple
+    }
+    /// @brief Rotate elements in a direction based on a given number. If it is negative,
+    ///        elements are rotated to the left, otherwise to the right
+    /// @param x The number determining the rotation of the elements
+    inline constexpr void rotate(const diff_t x) requires (std::is_move_constructible_v<Type>) {
+        if (count <= 1 || x == 0) return;
+        if (x < 0) this->rotl(-x); // Choose directions
+        else this->rotr(x);
+    }
+
+    /// @brief Remove every element equal to a given value except its first occurrence
+    /// @param value The element to make unique
+    /// @return The number of removed elements
+    /// @note Requires `Type` to be move-assignable or copy-assignable.
+    inline constexpr std::size_t unique(const Type& value)
+            requires (std::equality_comparable<Type> &&
+            (std::is_move_assignable_v<Type> || std::is_copy_assignable_v<Type>)) {
+        bool seen = false;
+        return this->internal_remove_if([&value, &seen](const Type& x, std::size_t, std::size_t) {
+            if (!(x == value)) return false;
+            if (!seen) { // We can't do an OR because we need to set `seen`
+                seen = true;
+                return false;
+            }
+            return true; // Remove
+        });
+    }
+
+    /// @brief Keep the first element in each consecutive run equal to a given value.
+    ///        The given value must not refer to an element in this vector. If equality
+    ///        or assignment throws, the vector retains valid object lifetimes, but its
+    ///        values may have been partially modified
+    /// @param value The value whose consecutive runs should be reduced
+    /// @return The number of removed elements
+    inline constexpr std::size_t unique_run(const Type& value)
+            requires (std::equality_comparable<Type> &&
+            (std::is_move_assignable_v<Type> || std::is_copy_assignable_v<Type>)) {
+        bool previous_was_value = false;
+        return this->internal_remove_if([&value, &previous_was_value](const Type& x, std::size_t, std::size_t) {
+            const bool is_value = x == value; // Equal?
+            const bool remove = is_value && previous_was_value; // Remove if we have a run (don't look forward)
+            previous_was_value = is_value; // Update it so we can keep going with a single run
+            return remove;
+        });
+    }
+
+    /// @brief Keep the first occurrence of each distinct value, preserving their original order
+    /// @return The number of removed elements
+    inline constexpr std::size_t unique_all() requires (std::equality_comparable<Type> &&
+            (std::is_move_assignable_v<Type> || std::is_copy_assignable_v<Type>)) {
+        return this->internal_remove_if([this](const Type& x, std::size_t, std::size_t kept) {
+            for (std::size_t i = 0; i < kept; ++i) // Check if any of the previous elements until now are equal
+                if (data[i] == x) return true; // If there's an equal one, remove the current one
+            return false;
+        });
+    }
+
+    /// @brief Keep the first element of each consecutive run of equal values
+    /// @return The number of removed elements
+    inline constexpr std::size_t unique_all_runs() requires (std::equality_comparable<Type> &&
+            (std::is_move_assignable_v<Type> || std::is_copy_assignable_v<Type>)) {
+        return this->internal_remove_if([this](const Type& x, std::size_t, std::size_t kept) {
+            return kept != 0 && data[kept - 1] == x; // This removes the current element if the previous one is equal
+        });
+    }
+
+    #endif // VECLIB_EXTRA
+
     /// @brief Compare two vectors for equality. If either vector is empty or the two vectors are of different sizes
     ///        they are automatically considered non-equal
     /// @param other The other vector
@@ -3370,6 +4000,13 @@ public:
     /// @brief It's an iterator what do you expect -_-
     inline constexpr Type* end() noexcept { return data ? data + count : nullptr; }
     inline constexpr const Type* end() const noexcept { return data ? data + count : nullptr; }
+
+    /// @brief Reverse begin iterator
+    inline constexpr RevItr<Type> rbegin() noexcept { return data ? RevItr<Type>(data + count - 1) : RevItr<Type>(nullptr) /* sorry */; }
+    inline constexpr const RevItr<Type> rbegin() const noexcept { return data ? RevItr<Type>(data + count - 1) : RevItr<Type>(nullptr); }
+    /// @brief Reverse end iterator
+    inline constexpr RevItr<Type> rend() noexcept { return data ? RevItr<Type>(data - 1) : RevItr<Type>(nullptr); }
+    inline constexpr const RevItr<Type> rend() const noexcept { return data ? RevItr<Type>(data - 1) : RevItr<Type>(nullptr); }
 };
 
 
